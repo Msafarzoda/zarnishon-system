@@ -15,6 +15,7 @@ import { AuthError, requireRole } from "@/lib/auth/session";
 import { cashOnHandD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
+import { runAllChecks } from "@/server/services/integrity";
 import { payableWeight } from "@/domain/weight";
 import {
   bpToPercentString,
@@ -169,12 +170,36 @@ export default async function DashboardPage() {
     .orderBy(desc(raw`COALESCE(SUM(${ledgerEntries.amountD}), 0)`))
     .limit(10);
 
+  // Recomputed from source rows every time this page loads: the ledger must balance,
+  // each ticket's weights must match its weighing record, each payment must match what
+  // the ledger actually posted, and every issued serial must have a ticket.
+  const findings = await runAllChecks(season);
+
   const kg = (g: number) => `${gramsToKgString(g, 0)} ${tg.common.kg}`;
   const som = (d: number) => `${diramToSomoniString(d)} ${tg.common.somoni}`;
 
   return (
     <Shell user={user} title={`${tg.dashboard.title} — ${tg.app.season}-${season}`}>
       <div className="space-y-6">
+        {findings.length > 0 && (
+          <section className="card border-alarm bg-red-50 p-4">
+            <h2 className="mb-3 font-semibold text-alarm">
+              {tg.dashboard.massBalance} — {findings.length}
+            </h2>
+            <ul className="space-y-2 text-sm">
+              {findings.map((f, i) => (
+                <li key={i} className="flex flex-wrap gap-2">
+                  <span className={f.severity === "alarm" ? "font-semibold text-alarm" : "text-warn"}>
+                    {f.titleTg}
+                  </span>
+                  {f.reference && <span className="font-mono text-ink-soft">{f.reference}</span>}
+                  <span className="w-full text-ink-soft">{f.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Tile label={tg.dashboard.cashOnHand} value={som(cashD)} accent />
           <Tile
