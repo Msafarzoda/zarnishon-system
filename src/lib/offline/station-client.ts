@@ -1,6 +1,14 @@
 "use client";
 
-import { enqueue, flush, newClientUuid, setStatus, type OutboxOperation } from "./outbox";
+import {
+  enqueue,
+  flush,
+  newClientUuid,
+  pruneApplied,
+  recoverInterrupted,
+  setStatus,
+  type OutboxOperation,
+} from "./outbox";
 
 export type SubmitOutcome<T> =
   | { kind: "applied"; result: T; clientUuid: string }
@@ -74,7 +82,15 @@ export async function submit<T>(
   }
 }
 
-/** Try to drain the queue — called on reconnect and on a timer by station screens. */
+/**
+ * Drain the queue. Station screens call this on load, on reconnect, and on a timer.
+ *
+ * Anything left SENDING by an interrupted page is put back first, otherwise it would
+ * never be retried and the pending count would never reach zero.
+ */
 export async function drain() {
-  return flush(send);
+  await recoverInterrupted();
+  const result = await flush(send);
+  await pruneApplied().catch(() => undefined);
+  return result;
 }

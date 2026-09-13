@@ -105,6 +105,17 @@ export default async function CashDeskPage() {
     generalPriceDPerKg = null;
   }
 
+  // Why the list is empty matters to the cashier. A load sits at the weighbridge, then
+  // at the lab, and only then reaches this desk — "nothing found" on its own looks like
+  // a broken screen rather than work that is still upstream.
+  const [upstream] = await db
+    .select({
+      onScale: raw<string>`COUNT(*) FILTER (WHERE ${weighTickets.status} = 'OPEN')`,
+      awaitingLab: raw<string>`COUNT(*) FILTER (WHERE ${weighTickets.status} = 'WEIGHED')`,
+    })
+    .from(weighTickets)
+    .where(eq(weighTickets.season, season));
+
   const farmList = await db
     .select({ id: counterparties.id, name: counterparties.name })
     .from(counterparties)
@@ -117,6 +128,8 @@ export default async function CashDeskPage() {
         cashOnHandD={await cashOnHandD()}
         generalPriceDPerKg={generalPriceDPerKg}
         priceError={priceError}
+        onScale={Number(upstream?.onScale ?? 0)}
+        awaitingLab={Number(upstream?.awaitingLab ?? 0)}
         tickets={unpaid.map((t) => ({
           ...t,
           netG: t.netG ?? 0,

@@ -104,6 +104,29 @@ export async function setStatus(
   await tx("readwrite", (store) => store.put(op));
 }
 
+/**
+ * Put interrupted operations back in the queue.
+ *
+ * An operation is marked SENDING while its request is in flight. If the page is
+ * navigated, reloaded, or frozen by a print dialog at that moment, nothing ever moves it
+ * on — it sits in SENDING for ever and the station shows "waiting to send" with a number
+ * that never goes down and no way to see what it is.
+ *
+ * Re-sending is safe: every operation carries its client UUID and the server returns the
+ * original outcome rather than doing the work twice. Call this when a station screen
+ * loads.
+ */
+export async function recoverInterrupted(): Promise<number> {
+  const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
+  const stuck = all.filter((op) => op.status === "SENDING");
+  for (const op of stuck) {
+    op.status = "PENDING";
+    op.lastError = "interrupted";
+    await tx("readwrite", (store) => store.put(op));
+  }
+  return stuck.length;
+}
+
 export async function pending(): Promise<OutboxOperation[]> {
   const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
   return all

@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
-import { and, eq, sql as raw } from "drizzle-orm";
+import { and, desc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   auditLog,
   batches,
+  weighEvents,
   counterparties,
   drivers,
   users,
@@ -70,6 +71,29 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
 
   // How many times this Борхат has already been printed. Each print puts another stamped
   // driver's copy into the world, so the button says so and asks for a reason.
+  // The moment each weighing was actually taken, off the append-only record — not the
+  // moment the row happened to be written. The paper form carries a time too, and while
+  // both systems are running in parallel this is what lets a printed ticket be matched
+  // to a line in the handwritten book.
+  const times = await db
+    .select({
+      kind: weighEvents.kind,
+      capturedAt: weighEvents.capturedAt,
+      id: weighEvents.id,
+      supersedesId: weighEvents.supersedesId,
+      recordedAt: weighEvents.recordedAt,
+    })
+    .from(weighEvents)
+    .where(eq(weighEvents.ticketId, t.id))
+    .orderBy(desc(weighEvents.recordedAt));
+
+  const superseded = new Set(times.map((e) => e.supersedesId).filter(Boolean) as string[]);
+  const liveAt = (kind: "GROSS" | "TARE") =>
+    times.find((e) => e.kind === kind && !superseded.has(e.id))?.capturedAt ?? null;
+  const grossAt = liveAt("GROSS");
+  const tareAt = liveAt("TARE");
+  const printedAt = new Date();
+
   const [printed] = await db
     .select({ n: raw<string>`COUNT(*)` })
     .from(auditLog)
@@ -83,7 +107,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
   ] as const;
 
   return (
-    <div className="min-h-screen bg-paper py-6">
+    <div className="borkhat-page min-h-screen bg-paper py-6">
       <div className="no-print mx-auto mb-4 flex max-w-[210mm] items-center gap-3 px-4">
         <a href="/tarozu" className="btn-secondary">{tg.common.back}</a>
         <span className="font-mono text-brand">{t.serial}</span>
@@ -112,6 +136,9 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
             label={copy.label}
             stamped={copy.stamped}
             cutAbove={i > 0}
+            grossAt={grossAt}
+            tareAt={tareAt}
+            printedAt={printedAt}
           />
         ))}
       </div>
@@ -150,11 +177,16 @@ interface Ticket {
 }
 
 function TicketCopy({
-  ticket: t, label, stamped, cutAbove,
-}: { ticket: Ticket; label: string; stamped: boolean; cutAbove: boolean }) {
+  ticket: t, label, stamped, cutAbove, grossAt, tareAt, printedAt,
+}: {
+  ticket: Ticket; label: string; stamped: boolean; cutAbove: boolean;
+  grossAt: Date | null; tareAt: Date | null; printedAt: Date;
+}) {
   const date = (t.weighedAt ?? t.createdAt).toLocaleDateString("ru-RU", {
     day: "2-digit", month: "long", year: "numeric",
   });
+  const hhmm = (d: Date | null) =>
+    d ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "—";
 
   return (
     <article className="print-copy card relative bg-white p-4 text-[12px] leading-snug">
@@ -226,12 +258,28 @@ function TicketCopy({
           </tr>
         </tbody>
       </table>
-      <div className="text-end text-[9px] text-ink-faint">{tg.ticket.weightSection}</div>
+      <div className="flex justify-between text-[9px] text-ink-faint">
+        <span>
+          {tg.ticket.weighedAtLabel}: {tg.ticket.gross} {hhmm(grossAt)} · {tg.ticket.tare}{" "}
+          {hhmm(tareAt)}
+        </span>
+        <span>{tg.ticket.weightSection}</span>
+      </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-4 text-[9px]">
+      <div className="mt-2 grid grid-cols-3 gap-4 text-[9px]">
         <Signature label={tg.ticket.merchandiser} name={t.weigher} />
         <Signature label={tg.ticket.deliveredBy} name={t.driver} />
         <Signature label={tg.ticket.receivedBy} name={null} />
+      </div>
+
+      {/* When this sheet came off the printer — distinct from when the truck was weighed,
+          so a reprint is identifiable on the paper itself, not only in the audit log. */}
+      <div className="text-end text-[8px] text-ink-faint">
+        {tg.ticket.printedAtLabel}:{" "}
+        {printedAt.toLocaleString("ru-RU", {
+          day: "2-digit", month: "2-digit", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })}
       </div>
 
       {stamped && (
@@ -239,6 +287,8 @@ function TicketCopy({
           {tg.ticket.copyNotice}
         </p>
       )}
+
+
     </article>
   );
 }

@@ -57,7 +57,7 @@
  * copy the driver keeps — with cut lines between them. One truck, one sheet.
  *
  * A4 is 297 mm. With a 6 mm margin top and bottom, 285 mm is printable, so each copy is
- * given 93 mm and the three fit exactly. Everything inside is sized in points so the
+ * given 92 mm and the three fit with room to spare. Everything inside is sized in points so the
  * result does not depend on the browser's zoom.
  */
 @media print {
@@ -78,14 +78,33 @@
     display: none !important;
   }
 
+  /* The page wrapper's own padding would eat into the printable area. */
+  .borkhat-page {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+
   .borkhat-sheet {
     max-width: none !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
+  /*
+   * Tailwind's `space-y-*` puts margin-top on every sibling after the first, and its
+   * selector (.space-y-4 > :not([hidden]) ~ :not([hidden])) outranks a plain .print-copy
+   * rule. Two gaps of 1rem is 8.5 mm — enough to push 279 mm of copies past the 285 mm
+   * that fits on a page, which tipped the third copy onto a second sheet.
+   */
+  .borkhat-sheet > * + *,
+  .borkhat-sheet > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0 !important;
+  }
+
   .print-copy {
-    height: 93mm !important;
+    height: 92mm !important;
     box-sizing: border-box;
     overflow: hidden;
     break-inside: avoid;
@@ -98,8 +117,10 @@
     /* Measured: at this size the tallest copy (the driver's, which carries the red
        notice) comes to ~88 mm, leaving ~5 mm of headroom in its 93 mm slot. */
     font-size: 8.8pt !important;
-    line-height: 1.25 !important;
+    line-height: 1.22 !important;
   }
+
+  /* 3 x 92 mm = 276 mm, leaving 9 mm of slack inside the 285 mm printable area. */
 
   /* Where to cut. The scissors mark sits on the line itself. */
   .print-copy + .print-copy {
@@ -120,7 +141,7 @@
 
   .print-copy th,
   .print-copy td {
-    padding: 0.6mm 1mm !important;
+    padding: 0.5mm 1mm !important;
   }
 
   /* Keep every rule and divider visible — printers drop backgrounds by default. */

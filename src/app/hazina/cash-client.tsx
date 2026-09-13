@@ -30,13 +30,16 @@ interface UnpaidTicket {
 }
 
 export function CashClient({
-  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms,
+  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms, onScale, awaitingLab,
 }: {
   cashOnHandD: number;
   generalPriceDPerKg: number | null;
   priceError: string | null;
   tickets: UnpaidTicket[];
   farms: { id: string; name: string }[];
+  /** Loads still upstream — shown so an empty list explains itself. */
+  onScale: number;
+  awaitingLab: number;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -118,7 +121,24 @@ export function CashClient({
       ) : (
         <ul className="space-y-2">
           {filtered.length === 0 && (
-            <li className="card p-8 text-center text-ink-faint">{tg.common.nothingFound}</li>
+            <li className="card p-8 text-center">
+              <p className="text-ink-faint">{tg.common.nothingFound}</p>
+              {(awaitingLab > 0 || onScale > 0) && (
+                <p className="mt-2 text-sm text-warn">
+                  {awaitingLab > 0 && (
+                    <>
+                      {tg.cash.awaitingLabCount}: <strong>{awaitingLab}</strong>
+                    </>
+                  )}
+                  {awaitingLab > 0 && onScale > 0 && " · "}
+                  {onScale > 0 && (
+                    <>
+                      {tg.cash.onScaleCount}: <strong>{onScale}</strong>
+                    </>
+                  )}
+                </p>
+              )}
+            </li>
           )}
           {filtered.map((t) => (
             <li key={t.id}>

@@ -13,6 +13,9 @@ export const tg = {
     offline: "Бе интернет — маълумот дар дастгоҳ нигоҳ дошта мешавад",
     online: "Пайваст",
     pendingSync: "Интизори фиристодан",
+    queueTitle: "Навбати фиристодан",
+    queueEmpty: "Ҳама чиз фиристода шуд",
+    sendNow: "Ҳозир фиристодан",
   },
 
   auth: {
@@ -88,6 +91,8 @@ export const tg = {
     copyFactory: "Нусхаи корхона",
     copyDriver: "Нусхаи ронанда (бо мӯҳр)",
     copyNotice: "Ин нусхаро нигоҳ доред — бе он пардохт карда намешавад",
+    weighedAtLabel: "Вақти баркашӣ",
+    printedAtLabel: "Чоп шуд",
     printedTimes: "Чоп шуд",
     printHint: "3 нусха дар як варақи A4. Дар равзанаи чоп «Headers and footers» / «Колонтитулы»-ро хомӯш кунед ва «Margins: None» интихоб кунед.",
     cutHere: "Аз ин ҷо буред",
@@ -195,6 +200,8 @@ export const tg = {
     printInvoice: "Ҳисобномаро чоп кардан",
     alreadyPaid: "Ин борхат аллакай пардохт шудааст",
     notAnalysed: "Таҳлили лаборатория ҳанӯз тасдиқ нашудааст",
+    awaitingLabCount: "Интизори лаборатория",
+    onScaleCount: "Дар тарозу",
     cashOnHand: "Нақди дар хазина",
     openDay: "Кушодани рӯз",
     closeDay: "Бастани рӯз",

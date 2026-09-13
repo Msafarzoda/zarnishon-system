@@ -102,7 +102,7 @@ export default async function CertificatePage({
   const copies = [tg.lab.copyLab, tg.lab.copyFactory, tg.lab.copyDriver];
 
   return (
-    <div className="min-h-screen bg-paper py-6">
+    <div className="borkhat-page min-h-screen bg-paper py-6">
       <div className="no-print mx-auto mb-3 flex max-w-[210mm] items-center gap-3 px-4">
         <a href="/laboratoriya" className="btn-secondary">{tg.common.back}</a>
         <span className="font-mono text-brand">{row.serial}</span>
