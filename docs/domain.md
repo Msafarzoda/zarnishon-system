@@ -205,6 +205,17 @@ ANALYSED → PAID (cash paid, copy C surrendered)
 any → VOID (reason mandatory, owner-visible)
 ```
 
+**WEIGHED → ANALYSED happens in two places**, and both are needed:
+
+1. When the lab approves a партия, every ticket already weighed in it is promoted.
+2. When a truck is weighed into a партия **that is already approved**, it is promoted
+   immediately on tare.
+
+Without (2) a truck arriving after approval would sit at `WEIGHED` for ever — no second
+approval is coming — so it would never become payable and would simply not appear at the
+cash desk. The farmer would be holding a stamped Copy C for cotton the system had
+quietly lost.
+
 ---
 
 ## 5. Anti-fraud design principles

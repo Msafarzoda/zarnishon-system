@@ -2,6 +2,7 @@ import { and, desc, eq, gt, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   auditLog,
+  labAnalyses,
   serialBlocks,
   stations,
   weighEvents,
@@ -218,6 +219,30 @@ export async function captureWeight(input: CaptureWeightInput) {
     if (input.kind === "GROSS" && status === "DRAFT") status = transition(status, "CAPTURE_GROSS");
     if (netG !== null && status === "OPEN") status = transition(status, "CAPTURE_TARE");
 
+    // A партия is usually analysed after the trucks stop coming, and approving it
+    // promotes everything already weighed. But a truck that arrives AFTER approval
+    // would otherwise sit at WEIGHED for ever: no second approval is coming, so it
+    // would never become payable and would simply disappear from the cash desk.
+    // Its партия is already analysed, so it is payable the moment нетто is known.
+    let analysedAt: Date | null = ticket.analysedAt;
+    if (status === "WEIGHED" && ticket.batchId) {
+      const [approved] = await tx
+        .select({ id: labAnalyses.id })
+        .from(labAnalyses)
+        .where(
+          and(
+            eq(labAnalyses.batchId, ticket.batchId),
+            eq(labAnalyses.stage, "on_intake"),
+            eq(labAnalyses.status, "APPROVED"),
+          ),
+        )
+        .limit(1);
+      if (approved) {
+        status = transition(status, "APPROVE_ANALYSIS");
+        analysedAt = capturedAt;
+      }
+    }
+
     await tx
       .update(weighTickets)
       .set({
@@ -232,6 +257,7 @@ export async function captureWeight(input: CaptureWeightInput) {
               ? "WEIGHED_TARE"
               : ticket.gate,
         weighedAt: netG !== null ? capturedAt : ticket.weighedAt,
+        analysedAt,
       })
       .where(eq(weighTickets.id, ticket.id));
 

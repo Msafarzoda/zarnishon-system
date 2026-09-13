@@ -147,8 +147,10 @@ async function main() {
   ]);
 
   // ------------------------------------------------------------ price
+  // The owner sets one price for the day, applying to every variety unless he
+  // deliberately quotes one separately. A general quote must exist, or nothing is payable.
   await db.insert(s.priceQuotes).values({
-    varietyId: variety.id,
+    varietyId: null,
     priceDPerKg: 1250, // 12.50 сомонӣ/кг
     effectiveFrom: new Date(`${SEASON}-09-01T00:00:00Z`),
     setBy: owner.id,

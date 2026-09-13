@@ -83,13 +83,26 @@ export default async function CashDeskPage() {
     }
   }
 
-  // The price of today — the one that will actually be applied.
-  let priceDPerKg: number | null = null;
+  // Resolve the price the same way `payTicket` will — per ticket, by its variety.
+  // Showing the cashier a general price while the server settles on a variety-specific
+  // one would put a different number on the screen than in the ledger.
+  const priceByVariety = new Map<string | null, number | null>();
   let priceError: string | null = null;
+  for (const varietyId of new Set(unpaid.map((t) => t.varietyId))) {
+    try {
+      priceByVariety.set(varietyId, (await resolvePriceAt(now, varietyId)).priceDPerKg);
+    } catch (err) {
+      priceByVariety.set(varietyId, null);
+      priceError ??= err instanceof Error ? err.message : tg.common.error;
+    }
+  }
+
+  // The headline figure is the general quote, which is what the owner normally sets.
+  let generalPriceDPerKg: number | null = null;
   try {
-    priceDPerKg = (await resolvePriceAt(now, null)).priceDPerKg;
-  } catch (err) {
-    priceError = err instanceof Error ? err.message : tg.common.error;
+    generalPriceDPerKg = (await resolvePriceAt(now, null)).priceDPerKg;
+  } catch {
+    generalPriceDPerKg = null;
   }
 
   const farmList = await db
@@ -102,7 +115,7 @@ export default async function CashDeskPage() {
     <Shell user={user} title={tg.cash.title}>
       <CashClient
         cashOnHandD={await cashOnHandD()}
-        priceDPerKg={priceDPerKg}
+        generalPriceDPerKg={generalPriceDPerKg}
         priceError={priceError}
         tickets={unpaid.map((t) => ({
           ...t,
@@ -110,6 +123,7 @@ export default async function CashDeskPage() {
           deductionBp: Number(t.deductionBp ?? 0),
           weighedAt: t.weighedAt?.toISOString() ?? null,
           advanceD: advanceByFarm[t.farmId] ?? 0,
+          priceDPerKg: priceByVariety.get(t.varietyId) ?? null,
         }))}
         farms={farmList}
       />

@@ -25,13 +25,15 @@ interface UnpaidTicket {
   batchNumber: number | null;
   variety: string | null;
   advanceD: number;
+  /** The price this ticket's variety resolves to today — null when none is in force. */
+  priceDPerKg: number | null;
 }
 
 export function CashClient({
-  cashOnHandD, priceDPerKg, priceError, tickets, farms,
+  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms,
 }: {
   cashOnHandD: number;
-  priceDPerKg: number | null;
+  generalPriceDPerKg: number | null;
   priceError: string | null;
   tickets: UnpaidTicket[];
   farms: { id: string; name: string }[];
@@ -62,10 +64,10 @@ export function CashClient({
         <Stat label={tg.cash.cashOnHand} value={`${diramToSomoniString(cashOnHandD)} ${tg.common.somoni}`} />
         <Stat
           label={tg.price.current}
-          value={priceDPerKg !== null
-            ? `${diramToSomoniString(priceDPerKg)} ${tg.price.perKg}`
+          value={generalPriceDPerKg !== null
+            ? `${diramToSomoniString(generalPriceDPerKg)} ${tg.price.perKg}`
             : "—"}
-          tone={priceDPerKg === null ? "bad" : undefined}
+          tone={generalPriceDPerKg === null ? "bad" : undefined}
         />
         <Stat label={tg.dashboard.unpaidTickets} value={String(tickets.length)} />
       </div>
@@ -105,10 +107,10 @@ export function CashClient({
                      onDone={() => { setShowAdvance(false); router.refresh(); }} />
       )}
 
-      {selected && priceDPerKg !== null ? (
+      {selected && selected.priceDPerKg !== null ? (
         <PaymentPanel
           ticket={selected}
-          priceDPerKg={priceDPerKg}
+          priceDPerKg={selected.priceDPerKg}
           onCancel={() => setSelectedId(null)}
           onNotice={setNotice}
           onDone={() => { setSelectedId(null); router.refresh(); }}
@@ -122,7 +124,8 @@ export function CashClient({
             <li key={t.id}>
               <button
                 onClick={() => setSelectedId(t.id)}
-                disabled={priceDPerKg === null}
+                disabled={t.priceDPerKg === null}
+                title={t.priceDPerKg === null ? tg.price.onlyOwner : undefined}
                 className="card flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-paper disabled:opacity-50"
               >
                 <span className="font-mono text-brand">{t.serial}</span>

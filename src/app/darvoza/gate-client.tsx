@@ -26,16 +26,20 @@ export function GateClient({
   const router = useRouter();
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
-  const unloading = onSite.filter((t) => t.gate === "WEIGHED_GROSS");
-  const awaitingTare = onSite.filter((t) => t.gate === "WEIGHED_GROSS" || t.gate === "ARRIVED");
+  // Three distinct states, not overlapping sets:
+  //   ARRIVED       — through the gate, not yet on the weighbridge
+  //   WEIGHED_GROSS — loaded weight taken; unloading, then waiting to be weighed empty
+  //   WEIGHED_TARE  — empty weight taken; free to leave
+  const awaitingGross = onSite.filter((t) => t.gate === "ARRIVED");
+  const awaitingTare = onSite.filter((t) => t.gate === "WEIGHED_GROSS");
   const readyToLeave = onSite.filter((t) => t.tareG !== null);
 
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-4">
         <Stat label={tg.gate.onSite} value={onSite.length} big />
-        <Stat label={tg.gate.unloading} value={unloading.length} />
-        <Stat label={tg.gate.awaitingTare} value={awaitingTare.length} />
+        <Stat label={tg.gate.arrive} value={awaitingGross.length} />
+        <Stat label={tg.gate.unloading} value={awaitingTare.length} />
         <Stat label={`${tg.gate.departed} · ${tg.gate.todayTotal}`} value={departedTodayCount} />
       </div>
 
