@@ -8,9 +8,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { analysisStage, analysisStatus } from "./enums.js";
-import { batches } from "./cotton.js";
-import { users } from "./org.js";
+import { analysisStage, analysisStatus } from "./enums";
+import { batches } from "./cotton";
+import { users } from "./org";
 
 /**
  * Форма №9-хл — справка о влажности и засорённости хлопка-сырца.

@@ -10,11 +10,11 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { accountKind, ledgerTxKind } from "./enums.js";
-import { counterparties } from "./parties.js";
-import { stations, users } from "./org.js";
-import { varieties } from "./cotton.js";
-import { weighTickets } from "./intake.js";
+import { accountKind, ledgerTxKind } from "./enums";
+import { counterparties } from "./parties";
+import { stations, users } from "./org";
+import { varieties } from "./cotton";
+import { weighTickets } from "./intake";
 
 /**
  * Нархи як кг — price per kilogram, in diram. Set by the owner only, effective-dated.

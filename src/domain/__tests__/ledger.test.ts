@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DomainError } from "../units.js";
-import { settleTicket } from "../settlement.js";
+import { DomainError } from "../units";
+import { settleTicket } from "../settlement";
 import {
   type DraftEntry,
   assertBalanced,
@@ -10,7 +10,7 @@ import {
   buildCottonPaymentTx,
   buildReversalTx,
   buildSeedSaleReceiptTx,
-} from "../ledger.js";
+} from "../ledger";
 
 const ACC = {
   cashAccountId: "cash",

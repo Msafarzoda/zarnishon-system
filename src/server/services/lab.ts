@@ -3,7 +3,7 @@ import { db } from "@/db/client";
 import { auditLog, labAnalyses, weighTickets } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
 import { deductionBp as computeDeduction } from "@/domain/weight";
-import { getActiveSettings } from "./settings.js";
+import { getActiveSettings } from "./settings";
 
 export interface CreateAnalysisInput {
   clientUuid: string;

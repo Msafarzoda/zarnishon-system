@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DomainError, diramToSomoniString, gramsToKgString } from "../units.js";
-import { deductionBp, netWeight, payableWeight } from "../weight.js";
-import { settleTicket } from "../settlement.js";
+import { DomainError, diramToSomoniString, gramsToKgString } from "../units";
+import { deductionBp, netWeight, payableWeight } from "../weight";
+import { settleTicket } from "../settlement";
 
 /**
  * The real paperwork this system replaces:

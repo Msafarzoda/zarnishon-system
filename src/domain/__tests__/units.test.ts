@@ -8,7 +8,7 @@ import {
   kgStringToGrams,
   percentStringToBp,
   somoniStringToDiram,
-} from "../units.js";
+} from "../units";
 
 describe("divRound", () => {
   it("rounds half away from zero", () => {

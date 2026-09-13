@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* Factory floor: operators read these screens standing up, often on old monitors. */
+    font-size: 17px;
+  }
+  body {
+    @apply bg-paper text-ink antialiased;
+  }
+  /* Weights and amounts are read at a glance and compared down a column. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-paper-line bg-paper-card shadow-sm;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-soft mb-1;
+  }
+  .input {
+    @apply w-full rounded-md border border-paper-line bg-white px-3 py-2.5 text-ink
+           outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+  /* Weighbridge and cash-desk number entry — big enough to read across the cabin. */
+  .input-number {
+    @apply input text-3xl font-semibold tabular tracking-tight;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5
+           font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-dark;
+  }
+  .btn-secondary {
+    @apply btn border border-paper-line bg-white text-ink hover:bg-paper;
+  }
+  .btn-danger {
+    @apply btn bg-alarm text-white hover:brightness-90;
+  }
+  .btn-lg {
+    @apply px-6 py-4 text-lg;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+}
+
+/* The Борхат prints in three copies on one sheet. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .print-copy {
+    page-break-inside: avoid;
+  }
+}

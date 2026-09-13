@@ -8,10 +8,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { gateState, ticketStatus, weighKind, weighSource } from "./enums.js";
-import { batches, varieties } from "./cotton.js";
-import { counterparties, drivers, vehicles } from "./parties.js";
-import { stations, users } from "./org.js";
+import { gateState, ticketStatus, weighKind, weighSource } from "./enums";
+import { batches, varieties } from "./cotton";
+import { counterparties, drivers, vehicles } from "./parties";
+import { stations, users } from "./org";
 
 /**
  * Борхати нақлиётию молӣ — the weigh ticket. One row per truckload.

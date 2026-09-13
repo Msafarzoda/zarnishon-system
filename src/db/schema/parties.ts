@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { counterpartyKind } from "./enums.js";
+import { counterpartyKind } from "./enums";
 
 /**
  * Everyone we transact with: farms delivering cotton (Борфиристонанда),

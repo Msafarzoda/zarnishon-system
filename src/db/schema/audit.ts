@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { stations, users } from "./org.js";
+import { stations, users } from "./org";
 
 /**
  * Every mutation, with who, where, on what device, and whether it came from an offline

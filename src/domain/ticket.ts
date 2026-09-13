@@ -1,4 +1,4 @@
-import { DomainError } from "./units.js";
+import { DomainError } from "./units";
 
 /**
  * Lifecycle of a Борхат (weigh ticket). See docs/domain.md §2 and §4.

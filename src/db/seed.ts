@@ -9,10 +9,10 @@
  * Run:  npm run db:push && npm run db:seed
  */
 import { randomUUID } from "node:crypto";
-import { db, sql } from "./client.js";
-import * as s from "./schema/index.js";
-import { hashPassword } from "../lib/auth/password.js";
-import { deductionBp, netWeight } from "../domain/weight.js";
+import { db, sql } from "./client";
+import * as s from "./schema/index";
+import { hashPassword } from "../lib/auth/password";
+import { deductionBp, netWeight } from "../domain/weight";
 
 const SEASON = 2026;
 

@@ -19,8 +19,8 @@ import {
   advanceAccountIdFor,
   outstandingAdvanceD,
   primaryCashAccountId,
-} from "./balances.js";
-import { resolvePriceAt } from "./pricing.js";
+} from "./balances";
+import { resolvePriceAt } from "./pricing";
 
 export interface PayTicketInput {
   /** Idempotency key from the cash desk. Replaying it returns the original payment. */

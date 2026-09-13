@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DomainError } from "../units.js";
-import { TICKET_STATUSES, canTransition, transition } from "../ticket.js";
+import { DomainError } from "../units";
+import { TICKET_STATUSES, canTransition, transition } from "../ticket";
 
 describe("ticket lifecycle", () => {
   it("walks the happy path from draft to paid", () => {

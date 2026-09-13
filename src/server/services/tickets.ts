@@ -311,3 +311,54 @@ export async function voidTicket(args: {
     return { ticketId: ticket.id, status: next };
   });
 }
+
+/**
+ * Қайди дарвоза — the guard marking a truck out through the gate.
+ *
+ * The guard touches nothing but the gate state: no weights, no batch, no money.
+ * A truck cannot be signed out before its empty weight has been taken, which is what
+ * stops a loaded truck leaving against a ticket that was never completed.
+ */
+export async function markDeparted(args: {
+  ticketId: string;
+  actorId: string;
+  at?: Date;
+}) {
+  return await db.transaction(async (tx) => {
+    const [ticket] = await tx
+      .select()
+      .from(weighTickets)
+      .where(eq(weighTickets.id, args.ticketId))
+      .for("update")
+      .limit(1);
+    if (!ticket) throw new DomainError("Борхат ёфт нашуд. / Ticket not found.");
+
+    if (ticket.gate === "DEPARTED") {
+      return { ticketId: ticket.id, gate: ticket.gate, alreadyDeparted: true };
+    }
+    if (ticket.tareG === null) {
+      throw new DomainError(
+        "Мошин ҳанӯз тара дода нашудааст. / This truck has not been weighed empty yet — " +
+          "it may not leave.",
+      );
+    }
+
+    const at = args.at ?? new Date();
+    await tx
+      .update(weighTickets)
+      .set({ gate: "DEPARTED", departedAt: at })
+      .where(eq(weighTickets.id, ticket.id));
+
+    await tx.insert(auditLog).values({
+      action: "gate.depart",
+      entityTable: "weigh_tickets",
+      entityId: ticket.id,
+      payload: { serial: ticket.serial, tareG: ticket.tareG },
+      actorId: args.actorId,
+      actorRole: "guard",
+      occurredAt: at,
+    });
+
+    return { ticketId: ticket.id, gate: "DEPARTED" as const, alreadyDeparted: false };
+  });
+}

@@ -81,6 +81,29 @@ export async function enqueue<T>(
   return op;
 }
 
+/** Read one operation back by its idempotency key. */
+export async function get(clientUuid: string): Promise<OutboxOperation | undefined> {
+  return await tx<OutboxOperation | undefined>("readonly", (store) => store.get(clientUuid));
+}
+
+/**
+ * Move an operation to a new status without disturbing its payload or its UUID.
+ * Used when a screen sends an operation itself and learns the outcome immediately.
+ */
+export async function setStatus(
+  clientUuid: string,
+  status: OutboxStatus,
+  extra: { result?: unknown; lastError?: string } = {},
+): Promise<void> {
+  const op = await get(clientUuid);
+  if (!op) return;
+  op.status = status;
+  if ("result" in extra) op.result = extra.result;
+  if ("lastError" in extra) op.lastError = extra.lastError;
+  if (status === "APPLIED") op.lastError = undefined;
+  await tx("readwrite", (store) => store.put(op));
+}
+
 export async function pending(): Promise<OutboxOperation[]> {
   const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
   return all

@@ -1,5 +1,5 @@
-import { DomainError, assertNonNegativeInt, assertSafeInt } from "./units.js";
-import type { Settlement } from "./settlement.js";
+import { DomainError, assertNonNegativeInt, assertSafeInt } from "./units";
+import type { Settlement } from "./settlement";
 
 /**
  * Double-entry posting rules. Every transaction this module builds is balanced by

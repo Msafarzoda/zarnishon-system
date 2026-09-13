@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { storageKind } from "./enums.js";
+import { storageKind } from "./enums";
 
 /** Навъи пахта — selection variety, e.g. С-6530. */
 export const varieties = pgTable("varieties", {

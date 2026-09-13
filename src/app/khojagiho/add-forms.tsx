@@ -1,0 +1,124 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import { tg } from "@/lib/i18n/tg";
+import { addDriverAction, addFarmAction, addVehicleAction } from "./actions";
+
+type State = { error?: string; ok?: string };
+
+export function AddForms() {
+  const [open, setOpen] = useState<"farm" | "vehicle" | "driver" | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 flex-wrap">
+        <button className="btn-secondary" onClick={() => setOpen(open === "farm" ? null : "farm")}>
+          {tg.common.add}: {tg.ticket.consignor}
+        </button>
+        <button className="btn-secondary" onClick={() => setOpen(open === "vehicle" ? null : "vehicle")}>
+          {tg.common.add}: {tg.ticket.vehicle}
+        </button>
+        <button className="btn-secondary" onClick={() => setOpen(open === "driver" ? null : "driver")}>
+          {tg.common.add}: {tg.ticket.driver}
+        </button>
+      </div>
+
+      {open === "farm" && <FarmForm />}
+      {open === "vehicle" && <VehicleForm />}
+      {open === "driver" && <DriverForm />}
+    </div>
+  );
+}
+
+function Feedback({ state }: { state: State }) {
+  return (
+    <>
+      {state?.error && <p role="alert" className="text-sm text-alarm">{state.error}</p>}
+      {state?.ok && <p role="status" className="text-sm text-brand">{state.ok}</p>}
+    </>
+  );
+}
+
+function FarmForm() {
+  const [state, action, pending] = useActionState(addFarmAction, {} as State);
+  return (
+    <form action={action} className="card p-5 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="name">{tg.ticket.consignor}</label>
+          <input id="name" name="name" required className="input" placeholder="х-д Билол-Б" />
+        </div>
+        <div>
+          <label className="label" htmlFor="tin">{tg.ticket.tin}</label>
+          <input id="tin" name="tin" className="input tabular" placeholder="5830076707" />
+        </div>
+        <div>
+          <label className="label" htmlFor="place">{tg.ticket.loadingPlace}</label>
+          <input id="place" name="place" className="input" placeholder="ч.Бустон" />
+        </div>
+        <div>
+          <label className="label" htmlFor="brigade">{tg.ticket.brigade}</label>
+          <input id="brigade" name="brigade" className="input" />
+        </div>
+        <div>
+          <label className="label" htmlFor="phone">{tg.ticket.driverHint}</label>
+          <input id="phone" name="phone" className="input" />
+        </div>
+      </div>
+      <input type="hidden" name="kind" value="farm" />
+      <Feedback state={state} />
+      <button type="submit" disabled={pending} className="btn-primary">
+        {pending ? tg.common.loading : tg.common.save}
+      </button>
+    </form>
+  );
+}
+
+function VehicleForm() {
+  const [state, action, pending] = useActionState(addVehicleAction, {} as State);
+  return (
+    <form action={action} className="card p-5 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label className="label" htmlFor="plate">{tg.ticket.vehicleHint}</label>
+          <input id="plate" name="plate" required className="input tabular" placeholder="22-60" />
+        </div>
+        <div>
+          <label className="label" htmlFor="model">{tg.ticket.vehicle}</label>
+          <input id="model" name="model" className="input" placeholder="Газел 22-60" />
+        </div>
+        <div>
+          <label className="label" htmlFor="transportOrg">{tg.ticket.transportOrg}</label>
+          <input id="transportOrg" name="transportOrg" className="input" placeholder="Хусусӣ" />
+        </div>
+      </div>
+      <Feedback state={state} />
+      <button type="submit" disabled={pending} className="btn-primary">
+        {pending ? tg.common.loading : tg.common.save}
+      </button>
+    </form>
+  );
+}
+
+function DriverForm() {
+  const [state, action, pending] = useActionState(addDriverAction, {} as State);
+  return (
+    <form action={action} className="card p-5 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="fullName">{tg.ticket.driverHint}</label>
+          <input id="fullName" name="fullName" required className="input"
+                 placeholder="Восиев Баҳром" />
+        </div>
+        <div>
+          <label className="label" htmlFor="dphone">{tg.ticket.driver}</label>
+          <input id="dphone" name="phone" className="input" />
+        </div>
+      </div>
+      <Feedback state={state} />
+      <button type="submit" disabled={pending} className="btn-primary">
+        {pending ? tg.common.loading : tg.common.save}
+      </button>
+    </form>
+  );
+}

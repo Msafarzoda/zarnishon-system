@@ -1,4 +1,4 @@
-import { BP_FULL, DomainError, assertNonNegativeInt, divRound } from "./units.js";
+import { BP_FULL, DomainError, assertNonNegativeInt, divRound } from "./units";
 
 /**
  * Нетто = Брутто − Тара

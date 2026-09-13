@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { userRole } from "./enums.js";
+import { userRole } from "./enums";
 
 /** A physical workplace: the gate, the weighbridge, the lab bench, the cash desk. */
 export const stations = pgTable("stations", {

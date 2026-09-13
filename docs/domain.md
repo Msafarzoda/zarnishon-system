@@ -132,15 +132,24 @@ deduction_bp = moisture_bp + trash_bp
 deduction_bp = max(0, moisture_bp − norm_moisture_bp) + max(0, trash_bp − norm_trash_bp)
 ```
 
-> ⚠️ **OPEN QUESTION — must be confirmed by the owner before go-live.**
-> The verbal description ("95 kg at 1.5% → 98.5% payable") describes `TOTAL`.
-> But the real Form №9-хл for batch 101 reads **moisture ≈ 9%, trash ≈ 2%**. Under `TOTAL`
-> that is an 11% deduction on every load, which is not how these contracts normally work —
-> those figures sit right at the usual conditioned norms (≈8–9% moisture, ≈2–3% trash),
-> which is the signature of `EXCESS_OVER_NORM`.
-> The system ships configured as `EXCESS_OVER_NORM` with norms 800 bp / 200 bp.
-> **Both modes are implemented and tested. Changing the mode is a settings change,
-> not a code change — but it must be a deliberate, logged decision by the owner.**
+> ✅ **DECIDED BY THE OWNER (13.09.2026): `EXCESS_OVER_NORM`.**
+>
+> The price per kg is the price for cotton **as it arrives** — normally damp — so the
+> norms are already priced in and only the excess is deducted. Deducting the full
+> measured percentage as well would take the same moisture off the farmer twice.
+>
+> The verbal description given earlier ("95 kg at 1.5 % → 98.5 % payable") describes
+> `TOTAL`; it was a simplification. The real Форма №9-хл for партия 101 reads
+> moisture 9 %, trash 2 %, which sit on the conditioned norms — consistent with the
+> decision above.
+>
+> **Norms in force: moisture 800 bp (8 %), trash 200 bp (2 %).** These are the seeded
+> defaults and still need Abdugafor's confirmation of the exact figures — they change
+> what is deducted. `TOTAL` remains implemented and tested, and switching is a settings
+> change, not a code change.
+>
+> The mode and norms in force are **frozen onto each analysis when it is approved**, so a
+> later settings change never restates cotton that has already been paid for.
 
 The lab head may **override** the computed `deduction_bp` with a mandatory reason.
 Overrides are logged and surfaced on the owner's dashboard.

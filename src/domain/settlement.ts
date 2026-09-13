@@ -1,5 +1,5 @@
-import { GRAMS_PER_KG, assertNonNegativeInt, divRound } from "./units.js";
-import { payableWeight } from "./weight.js";
+import { GRAMS_PER_KG, assertNonNegativeInt, divRound } from "./units";
+import { payableWeight } from "./weight";
 
 export interface SettlementInput {
   /** Нетто from the weighbridge, grams. */
