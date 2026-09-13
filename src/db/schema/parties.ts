@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { counterpartyKind } from "./enums";
 
 /**
@@ -23,8 +31,16 @@ export const counterparties = pgTable(
     note: text("note"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Who entered this record. A farm created at the weighbridge is reviewable. */
+    createdBy: uuid("created_by"),
+    /** Idempotency key, so a record added offline is not created twice on sync. */
+    clientUuid: uuid("client_uuid"),
   },
-  (t) => [index("counterparties_name_idx").on(t.name), index("counterparties_tin_idx").on(t.tin)],
+  (t) => [
+    index("counterparties_name_idx").on(t.name),
+    index("counterparties_tin_idx").on(t.tin),
+    uniqueIndex("counterparties_client_uuid_idx").on(t.clientUuid),
+  ],
 );
 
 /** Автомошин — vehicle, identified by its state plate. */
@@ -44,8 +60,13 @@ export const vehicles = pgTable(
     referenceTareG: text("reference_tare_g"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by"),
+    clientUuid: uuid("client_uuid"),
   },
-  (t) => [index("vehicles_plate_idx").on(t.plate)],
+  (t) => [
+    index("vehicles_plate_idx").on(t.plate),
+    uniqueIndex("vehicles_client_uuid_idx").on(t.clientUuid),
+  ],
 );
 
 /** Ронанда — driver. */
@@ -58,6 +79,11 @@ export const drivers = pgTable(
     licenseNo: text("license_no"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by"),
+    clientUuid: uuid("client_uuid"),
   },
-  (t) => [index("drivers_name_idx").on(t.fullName)],
+  (t) => [
+    index("drivers_name_idx").on(t.fullName),
+    uniqueIndex("drivers_client_uuid_idx").on(t.clientUuid),
+  ],
 );

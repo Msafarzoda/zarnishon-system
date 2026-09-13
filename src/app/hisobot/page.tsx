@@ -4,6 +4,8 @@ import { db } from "@/db/client";
 import {
   advances,
   counterparties,
+  drivers,
+  vehicles,
   labAnalyses,
   ledgerAccounts,
   ledgerEntries,
@@ -157,6 +159,36 @@ export default async function DashboardPage() {
     .orderBy(desc(labAnalyses.approvedAt))
     .limit(10);
 
+  // Records created at the weighbridge with a truck on the scale. The weigher is allowed
+  // to add these — stopping him would push the load back onto paper — so the control is
+  // that the owner sees them and can check them against reality.
+  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const [newFarms, newVehicles, newDrivers] = await Promise.all([
+    db
+      .select({ name: counterparties.name, tin: counterparties.tin, by: users.fullName,
+                at: counterparties.createdAt })
+      .from(counterparties)
+      .leftJoin(users, eq(users.id, counterparties.createdBy))
+      .where(and(isNotNull(counterparties.createdBy), gte(counterparties.createdAt, since)))
+      .orderBy(desc(counterparties.createdAt))
+      .limit(10),
+    db
+      .select({ plate: vehicles.plate, model: vehicles.model, by: users.fullName,
+                at: vehicles.createdAt })
+      .from(vehicles)
+      .leftJoin(users, eq(users.id, vehicles.createdBy))
+      .where(and(isNotNull(vehicles.createdBy), gte(vehicles.createdAt, since)))
+      .orderBy(desc(vehicles.createdAt))
+      .limit(10),
+    db
+      .select({ fullName: drivers.fullName, by: users.fullName, at: drivers.createdAt })
+      .from(drivers)
+      .leftJoin(users, eq(users.id, drivers.createdBy))
+      .where(and(isNotNull(drivers.createdBy), gte(drivers.createdAt, since)))
+      .orderBy(desc(drivers.createdAt))
+      .limit(10),
+  ]);
+
   const advanceByFarm = await db
     .select({
       farm: counterparties.name,
@@ -268,6 +300,42 @@ export default async function DashboardPage() {
                     <span className="tabular font-semibold">{som(Number(r.balanceD))}</span>
                   </li>
                 ))}
+            </ul>
+          </Panel>
+        )}
+
+        {(newFarms.length > 0 || newVehicles.length > 0 || newDrivers.length > 0) && (
+          <Panel title={tg.dashboard.newRecords}>
+            <ul className="divide-y divide-paper-line text-sm">
+              {newFarms.map((f, i) => (
+                <li key={`f${i}`} className="flex flex-wrap gap-2 py-2">
+                  <span className="badge bg-paper text-ink-soft">{tg.ticket.consignor}</span>
+                  <span className="font-medium">{f.name}</span>
+                  <span className="tabular text-ink-soft">{f.tin ?? "—"}</span>
+                  <span className="ms-auto text-ink-faint">
+                    {f.by} · {f.at.toLocaleDateString("ru-RU")}
+                  </span>
+                </li>
+              ))}
+              {newVehicles.map((v, i) => (
+                <li key={`v${i}`} className="flex flex-wrap gap-2 py-2">
+                  <span className="badge bg-paper text-ink-soft">{tg.ticket.vehicle}</span>
+                  <span className="font-medium">{v.model ?? "—"}</span>
+                  <span className="tabular text-ink-soft">{v.plate}</span>
+                  <span className="ms-auto text-ink-faint">
+                    {v.by} · {v.at.toLocaleDateString("ru-RU")}
+                  </span>
+                </li>
+              ))}
+              {newDrivers.map((d, i) => (
+                <li key={`d${i}`} className="flex flex-wrap gap-2 py-2">
+                  <span className="badge bg-paper text-ink-soft">{tg.ticket.driver}</span>
+                  <span className="font-medium">{d.fullName}</span>
+                  <span className="ms-auto text-ink-faint">
+                    {d.by} · {d.at.toLocaleDateString("ru-RU")}
+                  </span>
+                </li>
+              ))}
             </ul>
           </Panel>
         )}

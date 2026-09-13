@@ -123,6 +123,16 @@ export const tg = {
     printTicket: "Борхатро чоп кардан",
     assignBatch: "Партияро интихоб кунед",
     assignStorage: "Анбор / бунтро интихоб кунед",
+    // Plain meaning of the two weighings, so they can never be mixed up.
+    grossHint: "Вазни мошин бо пахта",
+    tareHint: "Вазни мошини холӣ — баъди холӣ кардан",
+    netHint: "Вазни пахта = Брутто − Тара",
+    addNew: "Нав",
+    newFarm: "Хоҷагии нав",
+    newVehicle: "Мошини нав",
+    newDriver: "Ронандаи нав",
+    tinHint: "9–12 рақам",
+    savedLocally: "Сабт шуд",
   },
 
   // ---- Форма №9-хл
@@ -211,6 +221,7 @@ export const tg = {
     seedRevenue: "Даромад аз тухмӣ",
     voidedTickets: "Борхатҳои бекоршуда",
     labOverrides: "Тағйироти лаборатория",
+    newRecords: "Сабтҳои нави дар тарозу иловашуда",
     alerts: "Огоҳиҳо",
     massBalance: "Тавозуни вазн",
   },

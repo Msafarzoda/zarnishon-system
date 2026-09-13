@@ -130,6 +130,12 @@ export function ScaleClient(props: Props) {
 function ArrivalForm({
   season, farms, drivers, vehicles, batches, varieties, onNotice, onDone,
 }: Props & { onNotice: (n: Notice) => void; onDone: () => void }) {
+  // Local copies, because the weigher may add a farm, a truck or a driver right here
+  // with the vehicle already on the scale. See src/server/services/registry.ts.
+  const [farmList, setFarmList] = useState(farms);
+  const [driverList, setDriverList] = useState(drivers);
+  const [vehicleList, setVehicleList] = useState(vehicles);
+
   const [consignorId, setConsignorId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [vehicleId, setVehicleId] = useState("");
@@ -138,7 +144,7 @@ function ArrivalForm({
   const [grossKg, setGrossKg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const farm = farms.find((f) => f.id === consignorId);
+  const farm = farmList.find((f) => f.id === consignorId);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -212,37 +218,98 @@ function ArrivalForm({
     <form onSubmit={onSubmit} className="card p-5 space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label className="label" htmlFor="consignor">{tg.ticket.consignor}</label>
-          <select id="consignor" required className="input" value={consignorId}
-                  onChange={(e) => setConsignorId(e.target.value)}>
-            <option value="">—</option>
-            {farms.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}{f.tin ? ` · ${f.tin}` : ""}
-              </option>
-            ))}
-          </select>
+          <SelectWithAdd
+            id="consignor"
+            label={tg.ticket.consignor}
+            value={consignorId}
+            onChange={setConsignorId}
+            required
+            options={farmList.map((f) => ({
+              value: f.id,
+              label: f.tin ? `${f.name} · ${f.tin}` : f.name,
+            }))}
+            addLabel={tg.scale.newFarm}
+            fields={[
+              { name: "name", label: tg.ticket.consignor, placeholder: "х-д Билол-Б", required: true },
+              { name: "tin", label: `${tg.ticket.tin} (${tg.scale.tinHint})`, placeholder: "5830076707", inputMode: "numeric" },
+              { name: "place", label: tg.ticket.loadingPlace, placeholder: "ч.Бустон" },
+            ]}
+            onCreate={async (values) => {
+              const id = crypto.randomUUID();
+              const res = await submit<{ id: string; name: string; tin: string | null }>(
+                "/api/counterparties",
+                { id, kind: "farm", name: values.name, tin: values.tin || undefined,
+                  defaultLocation: values.place || undefined },
+              );
+              if (res.kind === "rejected") return { error: res.message };
+              // Queued offline: the id is ours, so the ticket can name it straight away.
+              setFarmList((list) => [
+                ...list,
+                { id, name: values.name!, tin: values.tin || null, place: values.place || null },
+              ]);
+              setConsignorId(id);
+              return { ok: true };
+            }}
+          />
         </div>
 
-        <div>
-          <label className="label" htmlFor="vehicle">{tg.ticket.vehicle}</label>
-          <select id="vehicle" className="input" value={vehicleId}
-                  onChange={(e) => setVehicleId(e.target.value)}>
-            <option value="">—</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>{v.model ?? v.plate} · {v.plate}</option>
-            ))}
-          </select>
-        </div>
+        <SelectWithAdd
+          id="vehicle"
+          label={tg.ticket.vehicle}
+          value={vehicleId}
+          onChange={setVehicleId}
+          options={vehicleList.map((v) => ({
+            value: v.id,
+            label: `${v.model ?? v.plate} · ${v.plate}`,
+          }))}
+          addLabel={tg.scale.newVehicle}
+          fields={[
+            { name: "plate", label: tg.ticket.vehicleHint, placeholder: "22-60", required: true },
+            { name: "model", label: tg.ticket.vehicle, placeholder: "Газел 22-60" },
+            { name: "transportOrg", label: tg.ticket.transportOrg, placeholder: "Хусусӣ" },
+          ]}
+          onCreate={async (values) => {
+            const id = crypto.randomUUID();
+            const res = await submit<{ id: string; plate: string; model: string | null }>(
+              "/api/vehicles",
+              { id, plate: values.plate, model: values.model || undefined,
+                transportOrg: values.transportOrg || undefined },
+            );
+            if (res.kind === "rejected") return { error: res.message };
+            // The server returns the existing row when this plate is already known.
+            const resolved = res.kind === "applied" ? res.result.id : id;
+            setVehicleList((list) =>
+              list.some((v) => v.id === resolved)
+                ? list
+                : [...list, { id: resolved, plate: values.plate!, model: values.model || null }],
+            );
+            setVehicleId(resolved);
+            return { ok: true };
+          }}
+        />
 
-        <div>
-          <label className="label" htmlFor="driver">{tg.ticket.driver}</label>
-          <select id="driver" className="input" value={driverId}
-                  onChange={(e) => setDriverId(e.target.value)}>
-            <option value="">—</option>
-            {drivers.map((d) => <option key={d.id} value={d.id}>{d.fullName}</option>)}
-          </select>
-        </div>
+        <SelectWithAdd
+          id="driver"
+          label={tg.ticket.driver}
+          value={driverId}
+          onChange={setDriverId}
+          options={driverList.map((d) => ({ value: d.id, label: d.fullName }))}
+          addLabel={tg.scale.newDriver}
+          fields={[
+            { name: "fullName", label: tg.ticket.driverHint, placeholder: "Восиев Баҳром", required: true },
+            { name: "phone", label: tg.ticket.driver, placeholder: "" },
+          ]}
+          onCreate={async (values) => {
+            const id = crypto.randomUUID();
+            const res = await submit<{ id: string }>("/api/drivers", {
+              id, fullName: values.fullName, phone: values.phone || undefined,
+            });
+            if (res.kind === "rejected") return { error: res.message };
+            setDriverList((list) => [...list, { id, fullName: values.fullName! }]);
+            setDriverId(id);
+            return { ok: true };
+          }}
+        />
 
         <div>
           <label className="label" htmlFor="batch">{tg.scale.assignBatch}</label>
@@ -270,6 +337,7 @@ function ArrivalForm({
         <label className="label text-brand-dark" htmlFor="gross">
           {tg.ticket.gross} — {tg.scale.enterWeight}
         </label>
+        <p className="-mt-1 mb-2 text-sm text-brand-dark/75">{tg.scale.grossHint}</p>
         <input
           id="gross" inputMode="decimal" required autoComplete="off"
           className="input-number" placeholder="3015"
@@ -282,6 +350,111 @@ function ArrivalForm({
         {busy ? tg.common.loading : tg.scale.captureGross}
       </button>
     </form>
+  );
+}
+
+// -------------------------------------------------------------- select + add
+
+interface QuickField {
+  name: string;
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+  inputMode?: "text" | "numeric" | "decimal";
+}
+
+/**
+ * A dropdown with a "нав" button that adds a record without leaving the weighbridge.
+ *
+ * A truck with an unknown plate, or a farm delivering for the first time, must not stop
+ * the scale — otherwise the load goes on paper and is "entered later", which is the hole
+ * this system exists to close.
+ */
+function SelectWithAdd({
+  id, label, value, onChange, options, addLabel, fields, onCreate, required,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  addLabel: string;
+  fields: QuickField[];
+  onCreate: (values: Record<string, string>) => Promise<{ ok?: true; error?: string }>;
+  required?: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setError(null);
+    for (const f of fields) {
+      if (f.required && !values[f.name]?.trim()) {
+        setError(tg.common.required);
+        return;
+      }
+    }
+    setBusy(true);
+    try {
+      const result = await onCreate(values);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setValues({});
+      setAdding(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-end justify-between gap-2">
+        <label className="label mb-0" htmlFor={id}>{label}</label>
+        <button
+          type="button"
+          onClick={() => { setAdding((v) => !v); setError(null); }}
+          className="mb-1 rounded px-2 py-0.5 text-sm font-medium text-brand hover:bg-brand-light"
+        >
+          {adding ? tg.common.cancel : `+ ${tg.scale.addNew}`}
+        </button>
+      </div>
+
+      <select id={id} required={required} className="input mt-1" value={value}
+              onChange={(e) => onChange(e.target.value)}>
+        <option value="">—</option>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+
+      {adding && (
+        <div className="mt-2 space-y-2 rounded-lg border border-brand/30 bg-brand-light/50 p-3">
+          <p className="text-sm font-medium text-brand-dark">{addLabel}</p>
+          {fields.map((f) => (
+            <div key={f.name}>
+              <label className="label text-xs" htmlFor={`${id}-${f.name}`}>
+                {f.label}{f.required && " *"}
+              </label>
+              <input
+                id={`${id}-${f.name}`}
+                className="input"
+                inputMode={f.inputMode}
+                placeholder={f.placeholder}
+                value={values[f.name] ?? ""}
+                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+              />
+            </div>
+          ))}
+          {error && <p role="alert" className="text-sm text-alarm">{error}</p>}
+          {/* Not a submit button: it must not submit the Борхат form around it. */}
+          <button type="button" onClick={save} disabled={busy} className="btn-primary w-full">
+            {busy ? tg.common.loading : tg.common.save}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -389,6 +562,7 @@ function TareCard({
             <label className="label" htmlFor={`tare-${ticket.id}`}>
               {tg.ticket.tare} — {tg.scale.enterWeight}
             </label>
+            <p className="-mt-1 mb-2 text-sm text-ink-soft">{tg.scale.tareHint}</p>
             <input
               id={`tare-${ticket.id}`} inputMode="decimal" autoComplete="off" autoFocus
               className="input-number" placeholder="2380"
@@ -401,7 +575,9 @@ function TareCard({
               <p className="text-alarm font-medium">{preview.error}</p>
             ) : (
               <div className="rounded-lg bg-brand-light px-4 py-3">
-                <span className="text-sm text-brand-dark">{tg.ticket.net}</span>
+                <span className="text-sm text-brand-dark">
+                  {tg.ticket.net} — {tg.scale.netHint}
+                </span>
                 <div className="tabular text-3xl font-bold text-brand-dark">
                   {gramsToKgString(preview.netG, 1)} {tg.common.kg}
                 </div>
