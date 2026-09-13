@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { and, desc, eq, gte, isNotNull, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -13,7 +12,7 @@ import {
   users,
   weighTickets,
 } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { cashOnHandD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
@@ -32,13 +31,7 @@ import { Shell } from "@/components/shell";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  let user;
-  try {
-    user = await requireRole("owner", "accountant", "admin");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("owner", "accountant", "admin");
 
   const season = new Date().getFullYear();
   const startOfDay = new Date();
@@ -75,17 +68,22 @@ export default async function DashboardPage() {
     .select({
       netG: weighTickets.netG,
       farmId: weighTickets.consignorId,
-      deductionBp: raw<number>`COALESCE(${labAnalyses.overrideDeductionBp}, ${labAnalyses.computedDeductionBp})`,
+      deductionBp: raw<number>`COALESCE(
+        (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+           FROM lab_analyses la
+          WHERE la.ticket_id = weigh_tickets.id
+            AND la.stage = 'on_intake' AND la.status = 'APPROVED'
+            AND la.superseded_at IS NULL
+          LIMIT 1),
+        (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+           FROM lab_analyses la
+          WHERE la.batch_id = weigh_tickets.batch_id
+            AND la.stage = 'on_intake' AND la.status = 'APPROVED'
+            AND la.superseded_at IS NULL
+          LIMIT 1)
+      )`,
     })
     .from(weighTickets)
-    .innerJoin(
-      labAnalyses,
-      and(
-        eq(labAnalyses.batchId, weighTickets.batchId),
-        eq(labAnalyses.stage, "on_intake"),
-        eq(labAnalyses.status, "APPROVED"),
-      ),
-    )
     .where(and(eq(weighTickets.status, "ANALYSED"), eq(weighTickets.season, season)));
 
   let unpaidPayableG = 0;

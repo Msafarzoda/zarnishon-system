@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { asc, desc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -9,7 +8,7 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { diramToSomoniString, gramsToKgString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
@@ -18,13 +17,7 @@ import { AddForms } from "./add-forms";
 export const dynamic = "force-dynamic";
 
 export default async function FarmsPage() {
-  let user;
-  try {
-    user = await requireRole("merchandiser", "cashier", "owner", "accountant", "admin");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("merchandiser", "cashier", "owner", "accountant", "admin");
 
   // Each farm with what it still owes us and what we still owe it, both derived.
   const farms = await db

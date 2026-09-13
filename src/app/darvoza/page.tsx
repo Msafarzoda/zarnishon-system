@@ -1,8 +1,7 @@
-import { redirect } from "next/navigation";
 import { and, asc, eq, gte, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import { batches, counterparties, drivers, vehicles, weighTickets } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { GateClient } from "./gate-client";
@@ -10,13 +9,7 @@ import { GateClient } from "./gate-client";
 export const dynamic = "force-dynamic";
 
 export default async function GatePage() {
-  let user;
-  try {
-    user = await requireRole("guard", "weigher");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("guard", "weigher");
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);

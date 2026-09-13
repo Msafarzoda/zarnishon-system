@@ -15,9 +15,13 @@ import { DomainError } from "@/domain/units";
  * driver's copy may exist, and that is exactly what the owner needs to see.
  */
 
+export type PrintKind = "borkhat" | "tahlil";
+
 export interface RecordPrintInput {
   clientUuid: string;
   ticketId: string;
+  /** Which document: the Борхат itself, or the lab's Форма №9-хл certificate. */
+  kind?: PrintKind;
   actorId: string;
   actorRole: string;
   stationId?: string;
@@ -25,6 +29,9 @@ export interface RecordPrintInput {
 }
 
 export async function recordPrint(input: RecordPrintInput) {
+  const kind: PrintKind = input.kind ?? "borkhat";
+  const action = kind === "tahlil" ? "lab.print" : "ticket.print";
+
   const [ticket] = await db
     .select({ id: weighTickets.id, serial: weighTickets.serial })
     .from(weighTickets)
@@ -35,16 +42,17 @@ export async function recordPrint(input: RecordPrintInput) {
   const [before] = await db
     .select({ n: raw<string>`COUNT(*)` })
     .from(auditLog)
-    .where(and(eq(auditLog.entityId, ticket.id), eq(auditLog.action, "ticket.print")));
+    .where(and(eq(auditLog.entityId, ticket.id), eq(auditLog.action, action)));
 
   const previous = Number(before?.n ?? 0);
 
   await db.insert(auditLog).values({
-    action: "ticket.print",
+    action,
     entityTable: "weigh_tickets",
     entityId: ticket.id,
     payload: {
       serial: ticket.serial,
+      kind,
       copies: 3,
       // 0 on the original print; 1 and up mean extra stamped copies may now exist.
       reprintNumber: previous,

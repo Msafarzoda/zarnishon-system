@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -9,7 +8,7 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { ScaleClient } from "./scale-client";
@@ -17,13 +16,7 @@ import { ScaleClient } from "./scale-client";
 export const dynamic = "force-dynamic";
 
 export default async function ScalePage() {
-  let user;
-  try {
-    user = await requireRole("weigher");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("weigher");
 
   const season = new Date().getFullYear();
 

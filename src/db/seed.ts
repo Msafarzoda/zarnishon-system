@@ -237,9 +237,10 @@ async function main() {
   const norms = { moistureBp: 800, trashBp: 200 };
   const computed = deductionBp(reading, "EXCESS_OVER_NORM", norms);
 
+  // Every truck is sampled, so the analysis belongs to the Борхат, not the партия.
   await db.insert(s.labAnalyses).values({
     clientUuid: randomUUID(),
-    batchId: batch101.id,
+    ticketId: ticket46.id,
     stage: "on_intake",
     status: "DRAFT", // deliberately not approved — the lab screen approves it
     moistureBp: reading.moistureBp,

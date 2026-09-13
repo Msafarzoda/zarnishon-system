@@ -13,13 +13,18 @@ import type { DeductionMode } from "@/domain/weight";
 import { submit } from "@/lib/offline/station-client";
 import { tg } from "@/lib/i18n/tg";
 
-interface BatchRow {
-  batchId: string;
-  number: number;
-  grade: number | null;
-  variety: string | null;
-  ticketCount: number;
+export interface LabRow {
+  ticketId: string;
+  serial: string;
   netG: number;
+  weighedAt: string | null;
+  status: string;
+  farm: string;
+  plate: string | null;
+  model: string | null;
+  driver: string | null;
+  batchNumber: number | null;
+  variety: string | null;
   analysisId: string | null;
   analysisStatus: string | null;
   moistureBp: number | null;
@@ -35,13 +40,10 @@ interface Settings {
 }
 
 export function LabClient({
-  season, settings, batches,
-}: { season: number; settings: Settings; batches: BatchRow[] }) {
+  settings, waiting, recent,
+}: { settings: Settings; waiting: LabRow[]; recent: LabRow[] }) {
   const router = useRouter();
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
-
-  const waiting = batches.filter((b) => b.analysisStatus !== "APPROVED");
-  const done = batches.filter((b) => b.analysisStatus === "APPROVED");
 
   return (
     <div className="space-y-5">
@@ -52,6 +54,7 @@ export function LabClient({
             ? `${tg.lab.moisture} + ${tg.lab.trash}`
             : `> ${bpToPercentString(settings.norms.moistureBp, 0)}% ${tg.lab.moisture} · > ${bpToPercentString(settings.norms.trashBp, 0)}% ${tg.lab.trash}`}
         </strong>
+        <span className="ms-3 text-ink-faint">{tg.lab.perTruck}</span>
       </div>
 
       {notice && (
@@ -65,44 +68,61 @@ export function LabClient({
         </div>
       )}
 
-      {waiting.length === 0 && (
-        <div className="card p-8 text-center text-ink-faint">{tg.common.nothingFound}</div>
-      )}
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-ink-soft">
+          {tg.lab.awaiting} — {waiting.length}
+        </h2>
+        {waiting.length === 0 ? (
+          <div className="card p-8 text-center text-ink-faint">{tg.common.nothingFound}</div>
+        ) : (
+          <div className="space-y-4">
+            {waiting.map((row) => (
+              <AnalysisCard key={row.ticketId} row={row} settings={settings}
+                            onNotice={setNotice} onDone={() => router.refresh()} />
+            ))}
+          </div>
+        )}
+      </section>
 
-      {waiting.map((b) => (
-        <AnalysisCard key={b.batchId} batch={b} settings={settings}
-                      onNotice={setNotice} onDone={() => router.refresh()} />
-      ))}
-
-      {done.length > 0 && (
-        <section className="card p-4">
+      {recent.length > 0 && (
+        <section className="card overflow-x-auto p-4">
           <h2 className="mb-3 text-sm font-semibold text-ink-soft">{tg.lab.approved}</h2>
           <table className="w-full text-sm">
             <thead className="text-ink-faint">
-              <tr className="text-start">
-                <th className="py-1 text-start font-medium">{tg.lab.batchNo}</th>
+              <tr>
+                <th className="py-1 text-start font-medium">{tg.ticket.number}</th>
+                <th className="py-1 text-start font-medium">{tg.ticket.consignor}</th>
+                <th className="py-1 text-end font-medium">{tg.ticket.net}</th>
                 <th className="py-1 text-end font-medium">{tg.lab.moisture}</th>
                 <th className="py-1 text-end font-medium">{tg.lab.trash}</th>
                 <th className="py-1 text-end font-medium">{tg.lab.deduction}</th>
                 <th className="py-1 text-end font-medium">{tg.cash.payable}</th>
+                <th className="py-1 text-end font-medium" />
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
-              {done.map((b) => {
-                const d = b.overrideDeductionBp ?? b.computedDeductionBp ?? 0;
+              {recent.map((r) => {
+                const d = r.overrideDeductionBp ?? r.computedDeductionBp ?? 0;
                 return (
-                  <tr key={b.batchId}>
-                    <td className="py-2 font-medium">{b.number}</td>
-                    <td className="py-2 text-end tabular">{bpToPercentString(b.moistureBp ?? 0)}</td>
-                    <td className="py-2 text-end tabular">{bpToPercentString(b.trashBp ?? 0)}</td>
+                  <tr key={r.ticketId}>
+                    <td className="py-2 font-mono text-brand">{r.serial}</td>
+                    <td className="py-2">{r.farm}</td>
+                    <td className="py-2 text-end tabular">{gramsToKgString(r.netG, 1)}</td>
+                    <td className="py-2 text-end tabular">{bpToPercentString(r.moistureBp ?? 0)}</td>
+                    <td className="py-2 text-end tabular">{bpToPercentString(r.trashBp ?? 0)}</td>
                     <td className="py-2 text-end tabular font-semibold">
                       {bpToPercentString(d)}
-                      {b.overrideDeductionBp !== null && (
+                      {r.overrideDeductionBp !== null && (
                         <span className="ms-1 badge bg-amber-100 text-warn">{tg.lab.override}</span>
                       )}
                     </td>
                     <td className="py-2 text-end tabular">
-                      {gramsToKgString(payableWeight(b.netG, d), 1)} {tg.common.kg}
+                      {gramsToKgString(payableWeight(r.netG, d), 1)} {tg.common.kg}
+                    </td>
+                    <td className="py-2 text-end">
+                      <a href={`/tahlil/${r.ticketId}`} className="text-brand hover:underline">
+                        {tg.common.print}
+                      </a>
                     </td>
                   </tr>
                 );
@@ -116,24 +136,24 @@ export function LabClient({
 }
 
 function AnalysisCard({
-  batch, settings, onNotice, onDone,
+  row, settings, onNotice, onDone,
 }: {
-  batch: BatchRow; settings: Settings;
+  row: LabRow; settings: Settings;
   onNotice: (n: { tone: "ok" | "bad"; text: string }) => void; onDone: () => void;
 }) {
   const [moisture, setMoisture] = useState(
-    batch.moistureBp !== null ? bpToPercentString(batch.moistureBp) : "",
+    row.moistureBp !== null ? bpToPercentString(row.moistureBp) : "",
   );
   const [trash, setTrash] = useState(
-    batch.trashBp !== null ? bpToPercentString(batch.trashBp) : "",
+    row.trashBp !== null ? bpToPercentString(row.trashBp) : "",
   );
-  const [storage, setStorage] = useState(batch.storageNote ?? "");
+  const [storage, setStorage] = useState(row.storageNote ?? "");
   const [overriding, setOverriding] = useState(false);
   const [overrideValue, setOverrideValue] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Live preview: the technician sees the deduction and what it costs the farm in
+  // Live preview: the technician sees the deduction and what it costs this farmer in
   // kilograms before anything is committed.
   let preview: { deductionBp: number; payableG: number } | { error: string } | null = null;
   if (moisture.trim() && trash.trim()) {
@@ -143,7 +163,7 @@ function AnalysisCard({
         settings.deductionMode,
         settings.norms,
       );
-      preview = { deductionBp: d, payableG: payableWeight(batch.netG, d) };
+      preview = { deductionBp: d, payableG: payableWeight(row.netG, d) };
     } catch (err) {
       preview = { error: err instanceof DomainError ? err.message : tg.common.error };
     }
@@ -154,11 +174,11 @@ function AnalysisCard({
     if (!preview || "error" in preview) return;
     setBusy(true);
     try {
-      let analysisId = batch.analysisId;
+      let analysisId = row.analysisId;
 
-      if (!analysisId || batch.analysisStatus !== "DRAFT") {
+      if (!analysisId || row.analysisStatus !== "DRAFT") {
         const created = await submit<{ analysisId: string }>("/api/lab/analyses", {
-          batchId: batch.batchId,
+          ticketId: row.ticketId,
           stage: "on_intake",
           moistureBp: percentStringToBp(moisture),
           trashBp: percentStringToBp(trash),
@@ -175,14 +195,11 @@ function AnalysisCard({
         analysisId = created.result.analysisId;
       }
 
-      const approved = await submit<{ ticketsPromoted: number; effectiveDeductionBp: number }>(
-        "/api/lab/approve",
-        {
-          analysisId,
-          overrideDeductionBp: overriding ? percentStringToBp(overrideValue) : undefined,
-          overrideReason: overriding ? overrideReason : undefined,
-        },
-      );
+      const approved = await submit<{ effectiveDeductionBp: number }>("/api/lab/approve", {
+        analysisId,
+        overrideDeductionBp: overriding ? percentStringToBp(overrideValue) : undefined,
+        overrideReason: overriding ? overrideReason : undefined,
+      });
 
       if (approved.kind !== "applied") {
         onNotice({
@@ -194,9 +211,10 @@ function AnalysisCard({
 
       onNotice({
         tone: "ok",
-        text: `${tg.ticket.batch} ${batch.number} — ${tg.lab.approved}. ` +
-          `${tg.dashboard.unpaidTickets}: ${approved.result.ticketsPromoted}`,
+        text: `${row.serial} — ${tg.lab.approved}. ${tg.lab.printCertificate}`,
       });
+      // The lab keeps a paper certificate for every truck.
+      window.open(`/tahlil/${row.ticketId}`, "_blank");
       onDone();
     } finally {
       setBusy(false);
@@ -206,31 +224,36 @@ function AnalysisCard({
   return (
     <form onSubmit={onSubmit} className="card p-5 space-y-4">
       <header className="flex items-baseline gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold">
-          {tg.ticket.batch} {batch.number}
-        </h2>
-        {batch.variety && <span className="text-ink-soft">{batch.variety}</span>}
-        <span className="ms-auto tabular text-ink-soft">
-          {batch.ticketCount} × {tg.ticket.title} · {gramsToKgString(batch.netG, 0)} {tg.common.kg}
+        <span className="font-mono text-brand">{row.serial}</span>
+        <h3 className="text-lg font-semibold">{row.farm}</h3>
+        {row.plate && <span className="text-sm text-ink-faint">{row.plate}</span>}
+        {row.driver && <span className="text-sm text-ink-faint">{row.driver}</span>}
+        {row.batchNumber !== null && (
+          <span className="badge bg-paper text-ink-soft">
+            {tg.ticket.batch} {row.batchNumber}
+          </span>
+        )}
+        <span className="ms-auto tabular font-semibold">
+          {tg.ticket.net} {gramsToKgString(row.netG, 1)} {tg.common.kg}
         </span>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
-          <label className="label" htmlFor={`m-${batch.batchId}`}>{tg.lab.moisture}</label>
-          <input id={`m-${batch.batchId}`} inputMode="decimal" required autoComplete="off"
+          <label className="label" htmlFor={`m-${row.ticketId}`}>{tg.lab.moisture}</label>
+          <input id={`m-${row.ticketId}`} inputMode="decimal" required autoComplete="off"
                  className="input-number" placeholder="9"
                  value={moisture} onChange={(e) => setMoisture(e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor={`t-${batch.batchId}`}>{tg.lab.trash}</label>
-          <input id={`t-${batch.batchId}`} inputMode="decimal" required autoComplete="off"
+          <label className="label" htmlFor={`t-${row.ticketId}`}>{tg.lab.trash}</label>
+          <input id={`t-${row.ticketId}`} inputMode="decimal" required autoComplete="off"
                  className="input-number" placeholder="2"
                  value={trash} onChange={(e) => setTrash(e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor={`s-${batch.batchId}`}>{tg.lab.storage}</label>
-          <input id={`s-${batch.batchId}`} className="input" placeholder={tg.lab.bunt}
+          <label className="label" htmlFor={`s-${row.ticketId}`}>{tg.lab.storage}</label>
+          <input id={`s-${row.ticketId}`} className="input" placeholder={tg.lab.bunt}
                  value={storage} onChange={(e) => setStorage(e.target.value)} />
         </div>
       </div>
@@ -266,13 +289,13 @@ function AnalysisCard({
         {overriding && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="label" htmlFor={`o-${batch.batchId}`}>{tg.lab.deduction}</label>
-              <input id={`o-${batch.batchId}`} inputMode="decimal" required className="input"
+              <label className="label" htmlFor={`o-${row.ticketId}`}>{tg.lab.deduction}</label>
+              <input id={`o-${row.ticketId}`} inputMode="decimal" required className="input"
                      value={overrideValue} onChange={(e) => setOverrideValue(e.target.value)} />
             </div>
             <div>
-              <label className="label" htmlFor={`r-${batch.batchId}`}>{tg.lab.overrideReason}</label>
-              <input id={`r-${batch.batchId}`} required className="input"
+              <label className="label" htmlFor={`r-${row.ticketId}`}>{tg.lab.overrideReason}</label>
+              <input id={`r-${row.ticketId}`} required className="input"
                      value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
             </div>
           </div>
@@ -283,7 +306,7 @@ function AnalysisCard({
               disabled={busy || !preview || "error" in preview ||
                         (overriding && (!overrideValue || !overrideReason.trim()))}
               className="btn-primary btn-lg w-full">
-        {busy ? tg.common.loading : tg.lab.approve}
+        {busy ? tg.common.loading : `${tg.lab.approve} — ${tg.common.print}`}
       </button>
       <p className="text-xs text-ink-faint">{tg.lab.alreadyApproved}</p>
     </form>

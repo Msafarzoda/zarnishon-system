@@ -2,7 +2,6 @@ import { and, desc, eq, gt, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   auditLog,
-  labAnalyses,
   serialBlocks,
   stations,
   weighEvents,
@@ -10,6 +9,7 @@ import {
 } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
 import { netWeight } from "@/domain/weight";
+import { analysisForTicket } from "./lab";
 import { transition } from "@/domain/ticket";
 import type { TicketStatus } from "@/domain/ticket";
 
@@ -225,18 +225,8 @@ export async function captureWeight(input: CaptureWeightInput) {
     // would never become payable and would simply disappear from the cash desk.
     // Its партия is already analysed, so it is payable the moment нетто is known.
     let analysedAt: Date | null = ticket.analysedAt;
-    if (status === "WEIGHED" && ticket.batchId) {
-      const [approved] = await tx
-        .select({ id: labAnalyses.id })
-        .from(labAnalyses)
-        .where(
-          and(
-            eq(labAnalyses.batchId, ticket.batchId),
-            eq(labAnalyses.stage, "on_intake"),
-            eq(labAnalyses.status, "APPROVED"),
-          ),
-        )
-        .limit(1);
+    if (status === "WEIGHED") {
+      const approved = await analysisForTicket(tx, ticket.id, ticket.batchId);
       if (approved) {
         status = transition(status, "APPROVE_ANALYSIS");
         analysedAt = capturedAt;

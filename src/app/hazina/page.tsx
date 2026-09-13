@@ -1,17 +1,15 @@
-import { redirect } from "next/navigation";
 import { and, asc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   batches,
   counterparties,
-  labAnalyses,
   ledgerAccounts,
   ledgerEntries,
   varieties,
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { cashOnHandD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { tg } from "@/lib/i18n/tg";
@@ -21,13 +19,7 @@ import { CashClient } from "./cash-client";
 export const dynamic = "force-dynamic";
 
 export default async function CashDeskPage() {
-  let user;
-  try {
-    user = await requireRole("cashier");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("cashier");
 
   const season = new Date().getFullYear();
   const now = new Date();
@@ -47,18 +39,26 @@ export default async function CashDeskPage() {
       batchNumber: batches.number,
       varietyId: weighTickets.varietyId,
       variety: varieties.code,
-      deductionBp: raw<number>`COALESCE(${labAnalyses.overrideDeductionBp}, ${labAnalyses.computedDeductionBp})`,
+      // The truck's own analysis decides; a партия certificate covers one that was not
+      // sampled individually. Tables are named explicitly — interpolating a Drizzle
+      // column here would render it unqualified and collide inside the subqueries.
+      deductionBp: raw<number>`COALESCE(
+        (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+           FROM lab_analyses la
+          WHERE la.ticket_id = weigh_tickets.id
+            AND la.stage = 'on_intake' AND la.status = 'APPROVED'
+            AND la.superseded_at IS NULL
+          LIMIT 1),
+        (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+           FROM lab_analyses la
+          WHERE la.batch_id = weigh_tickets.batch_id
+            AND la.stage = 'on_intake' AND la.status = 'APPROVED'
+            AND la.superseded_at IS NULL
+          LIMIT 1)
+      )`,
     })
     .from(weighTickets)
     .innerJoin(counterparties, eq(counterparties.id, weighTickets.consignorId))
-    .innerJoin(
-      labAnalyses,
-      and(
-        eq(labAnalyses.batchId, weighTickets.batchId),
-        eq(labAnalyses.stage, "on_intake"),
-        eq(labAnalyses.status, "APPROVED"),
-      ),
-    )
     .leftJoin(vehicles, eq(vehicles.id, weighTickets.vehicleId))
     .leftJoin(batches, eq(batches.id, weighTickets.batchId))
     .leftJoin(varieties, eq(varieties.id, weighTickets.varietyId))

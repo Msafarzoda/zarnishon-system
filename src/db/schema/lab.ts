@@ -10,12 +10,25 @@ import {
 } from "drizzle-orm/pg-core";
 import { analysisStage, analysisStatus } from "./enums";
 import { batches } from "./cotton";
+import { weighTickets } from "./intake";
 import { users } from "./org";
 
 /**
  * Форма №9-хл — справка о влажности и засорённости хлопка-сырца.
- * One analysis per партия per stage. Immutable once APPROVED; a re-analysis inserts a
- * new row and marks the old one SUPERSEDED. Tickets already paid are never restated.
+ *
+ * **Every truck is sampled.** A sample is taken from the load after it is weighed, the
+ * lab measures намӣ and ифлосӣ for that truck, and its result decides what that farmer
+ * is paid. So an analysis normally belongs to a **ticket**.
+ *
+ * `batchId` is kept for the партия-level certificate the paper Форма №9-хл is written
+ * for — a whole lot analysed at once, which still happens when cotton is dispatched.
+ * Exactly one of `ticketId` / `batchId` is set.
+ *
+ * When paying, a ticket's own analysis wins; a партия-level analysis covers any ticket
+ * in the lot that was not sampled individually.
+ *
+ * Immutable once APPROVED; a re-analysis inserts a new row and marks the old one
+ * SUPERSEDED. Tickets already paid are never restated.
  */
 export const labAnalyses = pgTable(
   "lab_analyses",
@@ -23,9 +36,10 @@ export const labAnalyses = pgTable(
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     clientUuid: uuid("client_uuid").notNull(),
 
-    batchId: uuid("batch_id")
-      .notNull()
-      .references(() => batches.id),
+    /** The truck this sample came from. The normal case. */
+    ticketId: uuid("ticket_id").references(() => weighTickets.id),
+    /** The партия, when a whole lot is certified at once instead. */
+    batchId: uuid("batch_id").references(() => batches.id),
     /** cols 7–8 (по приёмке) or cols 9–10 (при отправке на завод). Payment uses on_intake. */
     stage: analysisStage("stage").notNull().default("on_intake"),
     status: analysisStatus("status").notNull().default("DRAFT"),
@@ -62,6 +76,7 @@ export const labAnalyses = pgTable(
   (t) => [
     uniqueIndex("lab_analyses_client_uuid_idx").on(t.clientUuid),
     index("lab_analyses_batch_idx").on(t.batchId, t.stage),
+    index("lab_analyses_ticket_idx").on(t.ticketId, t.stage),
     index("lab_analyses_status_idx").on(t.status),
   ],
 );

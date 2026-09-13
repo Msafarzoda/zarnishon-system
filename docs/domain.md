@@ -104,7 +104,21 @@ destroyed ticket must be explicitly voided with a reason, and voids are reported
 
 ## 3. Step 2 — Laboratory (Лаборатория, Форма №9-хл)
 
-The lab samples the cotton and reports, per **партия**:
+### Every truck is sampled
+
+A sample is taken from **each load** once it has been weighed, and that truck's own
+reading decides what its farmer is paid. So an analysis normally belongs to a
+**ticket**, not to a партия.
+
+The партия-level certificate the paper Форма №9-хл is written for still exists — a whole
+lot certified at once — and covers any ticket in the lot that was not sampled
+individually. When paying, **the truck's own analysis always wins.**
+
+The lab prints a Форма №9-хл certificate per truck in three copies: лаборатория,
+корхона, and the man who delivered it, who is entitled to see the deduction taken off
+his cotton.
+
+The lab samples the cotton and reports, per load:
 - **Влажность %** — moisture (`moisture_bp`)
 - **Засорённость %** — trash content (`trash_bp`)
 
@@ -205,16 +219,22 @@ ANALYSED → PAID (cash paid, copy C surrendered)
 any → VOID (reason mandatory, owner-visible)
 ```
 
-**WEIGHED → ANALYSED happens in two places**, and both are needed:
+**A load must pass the weighbridge AND the lab before a single somoni can be paid.**
+The status machine is what enforces it: `PAY` is only legal from `ANALYSED`, and the only
+way into `ANALYSED` is an approved analysis.
 
-1. When the lab approves a партия, every ticket already weighed in it is promoted.
-2. When a truck is weighed into a партия **that is already approved**, it is promoted
+**WEIGHED → ANALYSED happens in three places**, and all three are needed:
+
+1. The lab approves that truck's own sample — the normal case, one truck.
+2. The lab approves a партия certificate — every weighed ticket in the lot that has no
+   sample of its own is promoted.
+3. A truck is weighed into a партия **that is already certified**, and is promoted
    immediately on tare.
 
-Without (2) a truck arriving after approval would sit at `WEIGHED` for ever — no second
-approval is coming — so it would never become payable and would simply not appear at the
-cash desk. The farmer would be holding a stamped Copy C for cotton the system had
-quietly lost.
+Without (3) a truck arriving after the lot was certified would sit at `WEIGHED` for ever
+— no second approval is coming — so it would never become payable and would simply not
+appear at the cash desk. The farmer would be holding a stamped Copy C for cotton the
+system had quietly lost.
 
 ---
 

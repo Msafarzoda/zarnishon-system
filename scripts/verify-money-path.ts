@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db, sql } from "../src/db/client";
 import * as s from "../src/db/schema/index";
-import { approveAnalysis } from "../src/server/services/lab";
+import { approveAnalysis, createAnalysis } from "../src/server/services/lab";
 import { payTicket } from "../src/server/services/payments";
 import { issueAdvance } from "../src/server/services/advances";
 import { captureWeight, createTicket } from "../src/server/services/tickets";
@@ -61,13 +61,13 @@ async function main() {
   ok("payment refused while the лаборатория has not approved партия 101");
 
   const [analysis] = await db
-    .select().from(s.labAnalyses).where(eq(s.labAnalyses.batchId, batch.id));
-  assert(analysis);
+    .select().from(s.labAnalyses).where(eq(s.labAnalyses.ticketId, ticket46.id));
+  assert(analysis, "the seeded per-truck analysis is missing");
 
   const approved = await approveAnalysis({ analysisId: analysis.id, approverId: labTech.id });
   assert.equal(approved.effectiveDeductionBp, 100, "9 % moisture over an 8 % norm is a 1 % deduction");
-  assert.equal(approved.ticketsPromoted, 1, "the one weighed ticket in партия 101 becomes payable");
-  ok("approving партия 101 deducts 1 % and promotes 1 borkhat");
+  assert.equal(approved.ticketsPromoted, 1, "approving one truck's sample promotes that truck");
+  ok("approving Борхат №46's own sample deducts 1 % and makes that one truck payable");
 
   await assert.rejects(
     () => approveAnalysis({ analysisId: analysis.id, approverId: labTech.id }),
@@ -110,7 +110,7 @@ async function main() {
 
   // The offline queue replaying an operation it already sent.
   const replayUuid = randomUUID();
-  const [t47] = await newTruck({ weigher, scale, farm, batch, grossKg: 4000, tareKg: 3000 });
+  const [t47] = await newTruck({ weigher, scale, farm, batch, lab: labTech, grossKg: 4000, tareKg: 3000 });
   const first = await payTicket({
     clientUuid: replayUuid, ticketId: t47,
     cashierId: cashier.id, copyCollected: true,
@@ -135,7 +135,7 @@ async function main() {
   assert.equal(await outstandingAdvanceD(farm.id), 300_000);
   ok("3 000 сомонӣ left the drawer and landed on the farm's account");
 
-  const [t48] = await newTruck({ weigher, scale, farm, batch, grossKg: 3015, tareKg: 2380 });
+  const [t48] = await newTruck({ weigher, scale, farm, batch, lab: labTech, grossKg: 3015, tareKg: 2380 });
   const settled = await payTicket({
     clientUuid: randomUUID(), ticketId: t48,
     cashierId: cashier.id, copyCollected: true,
@@ -147,17 +147,31 @@ async function main() {
   ok(`the 3 000 сомонӣ қарз came off: ${diramToSomoniString(settled.cashPayableD)} сомонӣ handed over`);
 
   // ---------------------------------------------------------------- late truck
-  console.log("\nМошини дертар — a truck weighed into an already-approved партия");
+  console.log("\nБе лаборатория — a truck that has not been sampled cannot be paid");
+  const [unsampledId, unsampledSerial] = await newTruck({
+    weigher, scale, farm, batch, grossKg: 2500, tareKg: 2000, skipLab: true,
+  });
+  await assert.rejects(
+    () => payTicket({
+      clientUuid: randomUUID(), ticketId: unsampledId,
+      cashierId: cashier.id, copyCollected: true,
+    }),
+    /лаборатория/,
+    "a load that skipped the lab must not be payable",
+  );
+  ok(`${unsampledSerial} was weighed but not sampled — payment refused`);
+
+  console.log("\nМошини дертар — a truck sampled right after weighing");
 
   const [lateId, lateSerial] = await newTruck({
-    weigher, scale, farm, batch, grossKg: 5000, tareKg: 4000,
+    weigher, scale, farm, batch, lab: labTech, grossKg: 5000, tareKg: 4000,
   });
   const [late] = await db.select().from(s.weighTickets).where(eq(s.weighTickets.id, lateId));
   assert.equal(
     late?.status, "ANALYSED",
-    "партия 101 is already approved, so this ticket must be payable at once",
+    "its own sample is approved, so this ticket must be payable",
   );
-  ok(`${lateSerial} became payable immediately — it is not stranded at WEIGHED`);
+  ok(`${lateSerial} became payable once the lab approved its own sample`);
 
   // ---------------------------------------------------------------- integrity
   console.log("\nТафтиш — integrity of the books");
@@ -175,11 +189,16 @@ async function main() {
   console.log(`Нақди дар хазина: ${diramToSomoniString(await cashOnHandD())} сомонӣ\n`);
 }
 
-/** Put one truck through the weighbridge: open a borkhat, take брутто, take тара. */
+/**
+ * Put one truck through the whole intake path: open a borkhat, take брутто, take тара,
+ * then sample it in the lab. Nothing is payable until both have happened.
+ */
 async function newTruck(args: {
   weigher: { id: string }; scale: { id: string };
   farm: { id: string }; batch: { id: string };
   grossKg: number; tareKg: number;
+  lab?: { id: string };
+  skipLab?: boolean;
 }): Promise<[string, string]> {
   const ticket = await createTicket({
     clientUuid: randomUUID(),
@@ -199,6 +218,17 @@ async function newTruck(args: {
       stationId: args.scale.id,
     });
   }
+  if (!args.skipLab && args.lab) {
+    const analysis = await createAnalysis({
+      clientUuid: randomUUID(),
+      ticketId: ticket.id,
+      moistureBp: 900,
+      trashBp: 200,
+      labUserId: args.lab.id,
+    });
+    await approveAnalysis({ analysisId: analysis.id, approverId: args.lab.id });
+  }
+
   return [ticket.id, ticket.serial];
 }
 

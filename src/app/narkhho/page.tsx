@@ -1,8 +1,7 @@
-import { redirect } from "next/navigation";
 import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { priceQuotes, users, varieties } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { diramToSomoniString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
@@ -11,13 +10,7 @@ import { PriceForm } from "./price-form";
 export const dynamic = "force-dynamic";
 
 export default async function PricesPage() {
-  let user;
-  try {
-    user = await requireRole("owner", "accountant");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("owner", "accountant");
 
   const [quotes, varietyList] = await Promise.all([
     db

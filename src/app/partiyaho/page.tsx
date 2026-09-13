@@ -1,14 +1,12 @@
-import { redirect } from "next/navigation";
-import { and, asc, eq, isNull, sql as raw } from "drizzle-orm";
+import { asc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   batches,
-  labAnalyses,
   storageLocations,
   varieties,
   weighTickets,
 } from "@/db/schema/index";
-import { AuthError, requireRole } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { bpToPercentString, gramsToKgString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
@@ -17,13 +15,7 @@ import { BatchForms } from "./batch-forms";
 export const dynamic = "force-dynamic";
 
 export default async function BatchesPage() {
-  let user;
-  try {
-    user = await requireRole("merchandiser", "owner", "accountant", "admin");
-  } catch (err) {
-    if (err instanceof AuthError && err.code === "NOT_SIGNED_IN") redirect("/vorud");
-    throw err;
-  }
+  const user = await requirePageRole("merchandiser", "owner", "accountant", "admin");
 
   const season = new Date().getFullYear();
 
@@ -38,29 +30,39 @@ export default async function BatchesPage() {
       storage: storageLocations.nameTg,
       tickets: raw<string>`COUNT(DISTINCT ${weighTickets.id})`,
       netG: raw<string>`COALESCE(SUM(${weighTickets.netG}), 0)`,
-      analysisStatus: labAnalyses.status,
-      moistureBp: labAnalyses.moistureBp,
-      trashBp: labAnalyses.trashBp,
-      deductionBp: raw<number>`COALESCE(${labAnalyses.overrideDeductionBp}, ${labAnalyses.computedDeductionBp})`,
+      // Each truck is analysed on its own, so a партия no longer has a single reading.
+      // These aggregate what the lab actually found across the lot: how many loads have
+      // been through the lab, and the average weighted by how much cotton each carried.
+      analysed: raw<string>`COUNT(DISTINCT ${weighTickets.id})
+        FILTER (WHERE ${weighTickets.status} IN ('ANALYSED', 'PAID'))`,
+      moistureBp: raw<string>`(
+        SELECT ROUND(SUM(la.moisture_bp::numeric * t.net_g) / NULLIF(SUM(t.net_g), 0))
+          FROM lab_analyses la
+          JOIN weigh_tickets t ON t.id = la.ticket_id
+         WHERE t.batch_id = batches.id AND la.stage = 'on_intake'
+           AND la.status = 'APPROVED' AND la.superseded_at IS NULL)`,
+      trashBp: raw<string>`(
+        SELECT ROUND(SUM(la.trash_bp::numeric * t.net_g) / NULLIF(SUM(t.net_g), 0))
+          FROM lab_analyses la
+          JOIN weigh_tickets t ON t.id = la.ticket_id
+         WHERE t.batch_id = batches.id AND la.stage = 'on_intake'
+           AND la.status = 'APPROVED' AND la.superseded_at IS NULL)`,
+      deductionBp: raw<string>`(
+        SELECT ROUND(SUM(COALESCE(la.override_deduction_bp, la.computed_deduction_bp)::numeric
+                         * t.net_g) / NULLIF(SUM(t.net_g), 0))
+          FROM lab_analyses la
+          JOIN weigh_tickets t ON t.id = la.ticket_id
+         WHERE t.batch_id = batches.id AND la.stage = 'on_intake'
+           AND la.status = 'APPROVED' AND la.superseded_at IS NULL)`,
     })
     .from(batches)
     .leftJoin(varieties, eq(varieties.id, batches.varietyId))
     .leftJoin(storageLocations, eq(storageLocations.id, batches.storageLocationId))
     .leftJoin(weighTickets, eq(weighTickets.batchId, batches.id))
-    .leftJoin(
-      labAnalyses,
-      and(
-        eq(labAnalyses.batchId, batches.id),
-        eq(labAnalyses.stage, "on_intake"),
-        isNull(labAnalyses.supersededAt),
-      ),
-    )
     .where(eq(batches.season, season))
     .groupBy(
       batches.id, batches.number, batches.grade, batches.cottonClass, batches.closedAt,
       varieties.code, storageLocations.nameTg,
-      labAnalyses.status, labAnalyses.moistureBp, labAnalyses.trashBp,
-      labAnalyses.overrideDeductionBp, labAnalyses.computedDeductionBp,
     )
     .orderBy(asc(batches.number));
 
@@ -93,7 +95,7 @@ export default async function BatchesPage() {
                 <th className="py-1 text-end font-medium">{tg.lab.moisture}</th>
                 <th className="py-1 text-end font-medium">{tg.lab.trash}</th>
                 <th className="py-1 text-end font-medium">{tg.lab.deduction}</th>
-                <th className="py-1 text-start font-medium ps-4">{tg.lab.approve}</th>
+                <th className="py-1 text-start font-medium ps-4">{tg.lab.title}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-paper-line">
@@ -107,21 +109,21 @@ export default async function BatchesPage() {
                     {gramsToKgString(Number(b.netG), 0)} {tg.common.kg}
                   </td>
                   <td className="py-2 text-end tabular">
-                    {b.moistureBp !== null ? bpToPercentString(b.moistureBp) : "—"}
+                    {b.moistureBp !== null ? bpToPercentString(Number(b.moistureBp)) : "—"}
                   </td>
                   <td className="py-2 text-end tabular">
-                    {b.trashBp !== null ? bpToPercentString(b.trashBp) : "—"}
+                    {b.trashBp !== null ? bpToPercentString(Number(b.trashBp)) : "—"}
                   </td>
                   <td className="py-2 text-end tabular font-semibold">
                     {b.deductionBp !== null ? `${bpToPercentString(Number(b.deductionBp))} %` : "—"}
                   </td>
                   <td className="py-2 ps-4">
-                    {b.analysisStatus === "APPROVED" ? (
+                    {Number(b.analysed) === Number(b.tickets) && Number(b.tickets) > 0 ? (
                       <span className="badge bg-brand-light text-brand-dark">{tg.lab.approved}</span>
-                    ) : b.analysisStatus === "DRAFT" ? (
-                      <span className="badge bg-amber-100 text-warn">{tg.ticketStatus.WEIGHED}</span>
                     ) : (
-                      <span className="badge bg-paper text-ink-faint">{tg.cash.notAnalysed}</span>
+                      <span className="badge bg-amber-100 text-warn">
+                        {b.analysed} / {b.tickets}
+                      </span>
                     )}
                   </td>
                 </tr>

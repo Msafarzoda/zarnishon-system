@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { and, eq, gt } from "drizzle-orm";
 import { db } from "@/db/client";
 import { sessions, stations, users } from "@/db/schema/index";
@@ -143,4 +144,21 @@ export function homePathFor(role: Role): string {
     default:
       return "/idora";
   }
+}
+
+/**
+ * Role check for a **page**.
+ *
+ * `requireRole` throws, which is right for an API route but renders a crash page when a
+ * server component does it — a лаборант who types /hazina, or follows a stale link, got
+ * an HTTP 500. Here, not signed in sends you to the login screen and the wrong role
+ * sends you to a page that says so in Tajik.
+ */
+export async function requirePageRole(...allowed: Role[]): Promise<CurrentUser> {
+  const user = await currentUser();
+  if (!user) redirect("/vorud");
+  if (!allowed.includes(user.role) && !(user.role === "admin" && allowed.includes("admin"))) {
+    redirect("/dastrasi");
+  }
+  return user;
 }

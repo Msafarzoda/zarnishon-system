@@ -3,7 +3,6 @@ import { db } from "@/db/client";
 import {
   auditLog,
   counterparties,
-  labAnalyses,
   ledgerEntries,
   ledgerTx,
   payments,
@@ -21,6 +20,7 @@ import {
   primaryCashAccountId,
 } from "./balances";
 import { resolvePriceAt } from "./pricing";
+import { analysisForTicket } from "./lab";
 
 export interface PayTicketInput {
   /** Idempotency key from the cash desk. Replaying it returns the original payment. */
@@ -97,25 +97,13 @@ export async function payTicket(input: PayTicketInput): Promise<PayTicketResult>
     if (ticket.netG === null) {
       throw new DomainError("Вазни нетто муайян нашудааст. / Net weight is not established.");
     }
-    if (!ticket.batchId) {
-      throw new DomainError("Борхат ба партия вобаста карда нашудааст. / Ticket has no batch.");
-    }
 
-    // The approved intake analysis for this ticket's партия.
-    const [analysis] = await tx
-      .select()
-      .from(labAnalyses)
-      .where(
-        and(
-          eq(labAnalyses.batchId, ticket.batchId),
-          eq(labAnalyses.stage, "on_intake"),
-          eq(labAnalyses.status, "APPROVED"),
-        ),
-      )
-      .limit(1);
+    // Every truck is sampled, so this is normally the truck's own result; a партия
+    // certificate covers one that was not sampled individually.
+    const analysis = await analysisForTicket(tx, ticket.id, ticket.batchId);
     if (!analysis) {
       throw new DomainError(
-        "Таҳлили лаборатория тасдиқ нашудааст. / No approved lab analysis for this batch.",
+        "Таҳлили лаборатория тасдиқ нашудааст. / This load has not been through the lab.",
       );
     }
     const deductionBp = analysis.overrideDeductionBp ?? analysis.computedDeductionBp;
