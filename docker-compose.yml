@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: zarnishon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zarnishon
+      POSTGRES_PASSWORD: zarnishon
+      POSTGRES_DB: zarnishon
+    ports:
+      - "5433:5432"
+    volumes:
+      - zarnishon-pgdata:/var/lib/postgresql/data
+volumes:
+  zarnishon-pgdata:
