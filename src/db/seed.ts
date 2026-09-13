@@ -50,12 +50,15 @@ async function main() {
   }
 
   // ------------------------------------------------------------ serial block
+  // The block starts at 46 because Борхат №46 below is the first ticket this system
+  // holds — the earlier numbers were written on paper and are not ours to account for.
+  // Starting at 1 would make verifySerialGaps() correctly report 45 missing tickets.
   await db.insert(s.serialBlocks).values({
     stationId: scale.id,
     season: SEASON,
-    rangeStart: 1,
+    rangeStart: 46,
     rangeEnd: 5000,
-    nextSerial: 47, // №46 below is already used
+    nextSerial: 47, // №46 is used by the seeded ticket
     issuedBy: owner.id,
   });
 

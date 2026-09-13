@@ -62,15 +62,26 @@ export function kgStringToGrams(input: string): number {
   return Number(whole) * GRAMS_PER_KG + Number(millis);
 }
 
-/** Grams -> display string in kilograms, 3 decimals, trailing zeros trimmed to 1+. */
+/**
+ * Grams -> display string in kilograms at the requested precision.
+ *
+ * Rounds rather than truncates: 628 650 g shown to one decimal is 628.7 kg, not 628.6.
+ * This string is what a farmer reads on his printed Борхат, so it must not quietly
+ * round against him. The underlying grams are never changed — only what is displayed.
+ */
 export function gramsToKgString(grams: number, decimals = 3): string {
   assertSafeInt(grams, "grams");
+  const places = Math.min(3, Math.max(0, Math.trunc(decimals)));
   const sign = grams < 0 ? "-" : "";
-  const abs = Math.abs(grams);
+
+  // Round to the last displayed digit before splitting into whole and fraction.
+  const step = 10 ** (3 - places);
+  const abs = divRound(Math.abs(grams), step) * step;
+
   const whole = Math.floor(abs / GRAMS_PER_KG);
   const frac = String(abs % GRAMS_PER_KG).padStart(3, "0");
-  if (decimals <= 0) return `${sign}${whole}`;
-  return `${sign}${whole}.${frac.slice(0, decimals)}`;
+  if (places === 0) return `${sign}${whole}`;
+  return `${sign}${whole}.${frac.slice(0, places)}`;
 }
 
 // ---------------------------------------------------------------- money

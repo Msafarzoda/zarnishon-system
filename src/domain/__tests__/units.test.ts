@@ -48,6 +48,21 @@ describe("kilogram parsing", () => {
     expect(gramsToKgString(3_015_000, 1)).toBe("3015.0");
     expect(gramsToKgString(1)).toBe("0.001");
   });
+
+  /** The farmer reads this number off his printed Борхат — it must not round against him. */
+  it("rounds to the displayed digit instead of truncating", () => {
+    expect(gramsToKgString(628_650, 1)).toBe("628.7");
+    expect(gramsToKgString(628_650, 2)).toBe("628.65");
+    expect(gramsToKgString(1_138_500, 0)).toBe("1139");
+    expect(gramsToKgString(1_138_400, 0)).toBe("1138");
+    expect(gramsToKgString(999_500, 0)).toBe("1000");
+    expect(gramsToKgString(-628_650, 1)).toBe("-628.7");
+  });
+
+  it("clamps the requested precision to what a gram can express", () => {
+    expect(gramsToKgString(635_123, 9)).toBe("635.123");
+    expect(gramsToKgString(635_500, -2)).toBe("636");
+  });
 });
 
 describe("money parsing", () => {

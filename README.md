@@ -108,3 +108,17 @@ src/app/                Next.js screens
 
 `src/domain` has no database and no framework in it. It is all pure functions, which is
 why the arithmetic that decides what a farmer is paid can be tested exhaustively.
+
+---
+
+## Verifying it works
+
+```bash
+npm test        # 52 domain tests — the arithmetic that decides what a farmer is paid
+npm run verify  # 11 end-to-end checks against a live database (run after db:seed)
+```
+
+`npm run verify` walks the whole path the factory walks — approve the lab analysis, pay
+the farmer, try to pay him twice, lend a farm money and watch it come back out of his
+next load, weigh a truck into a партия that is already approved — and then asks the
+integrity checks whether the books still hold.
