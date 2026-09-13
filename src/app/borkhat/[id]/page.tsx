@@ -98,9 +98,21 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
         <PrintButton ticketId={t.id} alreadyPrinted={printCount} />
       </div>
 
-      <div className="mx-auto max-w-[210mm] space-y-4 px-4">
-        {copies.map((copy) => (
-          <TicketCopy key={copy.key} ticket={t} label={copy.label} stamped={copy.stamped} />
+      {/* Browsers add their own page header and URL footer; only the operator can turn
+          those off, in the print dialog. */}
+      <p className="no-print mx-auto mb-3 max-w-[210mm] px-4 text-sm text-ink-soft">
+        {tg.ticket.printHint}
+      </p>
+
+      <div className="borkhat-sheet mx-auto max-w-[210mm] space-y-4 px-4">
+        {copies.map((copy, i) => (
+          <TicketCopy
+            key={copy.key}
+            ticket={t}
+            label={copy.label}
+            stamped={copy.stamped}
+            cutAbove={i > 0}
+          />
         ))}
       </div>
     </div>
@@ -138,33 +150,42 @@ interface Ticket {
 }
 
 function TicketCopy({
-  ticket: t, label, stamped,
-}: { ticket: Ticket; label: string; stamped: boolean }) {
+  ticket: t, label, stamped, cutAbove,
+}: { ticket: Ticket; label: string; stamped: boolean; cutAbove: boolean }) {
   const date = (t.weighedAt ?? t.createdAt).toLocaleDateString("ru-RU", {
     day: "2-digit", month: "long", year: "numeric",
   });
 
   return (
-    <article className="print-copy card bg-white p-5 text-[13px] leading-tight">
-      <header className="mb-3 flex items-start justify-between border-b border-paper-line pb-2">
+    <article className="print-copy card relative bg-white p-4 text-[12px] leading-snug">
+      {/* Where to cut the sheet into its three copies. */}
+      {cutAbove && (
+        <span className="absolute -top-2 left-3 bg-paper px-1 text-[10px] text-ink-faint print:bg-white">
+          ✂ {tg.ticket.cutHere}
+        </span>
+      )}
+
+      <header className="mb-2 flex items-start justify-between gap-3 border-b border-paper-line pb-1.5">
         <div>
           <div className="text-ink-faint">{tg.ticket.formCode}</div>
-          <h2 className="mt-1 font-bold uppercase tracking-wide">
+          <h2 className="font-bold uppercase tracking-wide">
             {tg.ticket.title} {tg.ticket.number}
             <span className="ms-2 font-mono text-base">{t.serialNumber}</span>
           </h2>
         </div>
         <div className="text-end">
-          <div className="text-ink-faint">{tg.app.season}-{t.season}</div>
-          <div className="mt-1">
-            <span className="text-ink-faint">{tg.ticket.batch} </span>
-            <strong className="text-base">{t.batchNumber ?? "—"}</strong>
+          <div className="text-ink-faint">
+            {tg.app.season}-{t.season} · {tg.ticket.batch}{" "}
+            <strong className="text-ink">{t.batchNumber ?? "—"}</strong>
           </div>
-          <div className="mt-1 badge bg-paper text-ink-soft">{label}</div>
+          <div className="mt-0.5 font-semibold">{label}</div>
+          {/* The system's own serial, so a printed ticket can be matched against the
+              handwritten book while both are being kept in parallel. */}
+          <div className="font-mono text-[9px] text-ink-faint">{t.serial}</div>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+      <div className="grid grid-cols-2 gap-x-5">
         <Field label={tg.ticket.date} value={date} />
         <Field label={tg.ticket.vehicle} value={[t.model, t.plate].filter(Boolean).join(" · ")} />
         <Field label={tg.ticket.transportOrg} value={t.transportOrg} />
@@ -179,40 +200,42 @@ function TicketCopy({
         <Field label={tg.ticket.garage} value={t.garageNo} />
       </div>
 
-      <table className="mt-3 w-full border-collapse text-center">
+      <table className="mt-2 w-full border-collapse text-center">
         <thead>
-          <tr className="bg-paper text-[11px] text-ink-soft">
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.variety}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.grade}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.batch}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.cottonClass}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.gross}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.tare}</th>
-            <th className="border border-paper-line px-2 py-1 font-medium">{tg.ticket.net}</th>
+          <tr className="bg-paper text-[10px] text-ink-soft">
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.variety}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.grade}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.batch}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.cottonClass}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.gross}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.tare}</th>
+            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.net}</th>
           </tr>
         </thead>
         <tbody>
           <tr className="tabular">
-            <td className="border border-paper-line px-2 py-2">{t.variety ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-2">{t.grade ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-2">{t.batchNumber ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-2">{t.cottonClass ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-2">{kg(t.grossG)}</td>
-            <td className="border border-paper-line px-2 py-2">{kg(t.tareG)}</td>
-            <td className="border border-paper-line px-2 py-2 text-base font-bold">{kg(t.netG)}</td>
+            <td className="border border-paper-line px-2 py-1">{t.variety ?? "—"}</td>
+            <td className="border border-paper-line px-2 py-1">{t.grade ?? "—"}</td>
+            <td className="border border-paper-line px-2 py-1">{t.batchNumber ?? "—"}</td>
+            <td className="border border-paper-line px-2 py-1">{t.cottonClass ?? "—"}</td>
+            <td className="border border-paper-line px-2 py-1">{kg(t.grossG)}</td>
+            <td className="border border-paper-line px-2 py-1">{kg(t.tareG)}</td>
+            <td className="print-net border border-paper-line px-2 py-1 text-sm font-bold">
+              {kg(t.netG)}
+            </td>
           </tr>
         </tbody>
       </table>
-      <div className="mt-1 text-end text-[11px] text-ink-faint">{tg.ticket.weightSection}</div>
+      <div className="text-end text-[9px] text-ink-faint">{tg.ticket.weightSection}</div>
 
-      <div className="mt-4 grid grid-cols-3 gap-4 text-[11px]">
+      <div className="mt-3 grid grid-cols-3 gap-4 text-[9px]">
         <Signature label={tg.ticket.merchandiser} name={t.weigher} />
         <Signature label={tg.ticket.deliveredBy} name={t.driver} />
         <Signature label={tg.ticket.receivedBy} name={null} />
       </div>
 
       {stamped && (
-        <p className="mt-3 rounded border border-alarm/40 bg-red-50 px-3 py-2 text-[12px] font-medium text-alarm">
+        <p className="mt-1.5 border border-alarm/40 bg-red-50 px-2 py-1 text-[10px] font-medium text-alarm">
           {tg.ticket.copyNotice}
         </p>
       )}
@@ -222,7 +245,7 @@ function TicketCopy({
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex gap-2 border-b border-dotted border-paper-line py-0.5">
+    <div className="flex gap-2 border-b border-dotted border-paper-line py-px">
       <span className="shrink-0 text-ink-faint">{label}</span>
       <span className="ms-auto text-end font-medium">{value || "—"}</span>
     </div>
@@ -232,8 +255,8 @@ function Field({ label, value }: { label: string; value: string | null | undefin
 function Signature({ label, name }: { label: string; name: string | null }) {
   return (
     <div>
-      <div className="h-7 border-b border-ink-faint" />
-      <div className="mt-1 text-ink-faint">{label}</div>
+      <div className="h-5 border-b border-ink-faint" />
+      <div className="mt-0.5 text-ink-faint">{label}</div>
       <div className="font-medium">{name ?? " "}</div>
     </div>
   );

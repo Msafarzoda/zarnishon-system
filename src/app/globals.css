@@ -52,15 +52,81 @@
   }
 }
 
-/* The Борхат prints in three copies on one sheet. */
+/**
+ * The Борхат prints in three copies on ONE A4 sheet — guard, factory, and the stamped
+ * copy the driver keeps — with cut lines between them. One truck, one sheet.
+ *
+ * A4 is 297 mm. With a 6 mm margin top and bottom, 285 mm is printable, so each copy is
+ * given 93 mm and the three fit exactly. Everything inside is sized in points so the
+ * result does not depend on the browser's zoom.
+ */
 @media print {
-  .no-print {
-    display: none !important;
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
   }
+
+  html {
+    font-size: 12px;
+  }
+
   body {
     background: #fff;
   }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .borkhat-sheet {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
   .print-copy {
+    height: 93mm !important;
+    box-sizing: border-box;
+    overflow: hidden;
+    break-inside: avoid;
     page-break-inside: avoid;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 2mm 3mm !important;
+    /* Measured: at this size the tallest copy (the driver's, which carries the red
+       notice) comes to ~88 mm, leaving ~5 mm of headroom in its 93 mm slot. */
+    font-size: 8.8pt !important;
+    line-height: 1.25 !important;
+  }
+
+  /* Where to cut. The scissors mark sits on the line itself. */
+  .print-copy + .print-copy {
+    border-top: 1px dashed #9a9a9a !important;
+  }
+
+  .print-copy h2 {
+    font-size: 11.6pt !important;
+  }
+
+  .print-copy .print-net {
+    font-size: 12.7pt !important;
+  }
+
+  .print-copy table {
+    font-size: 8.3pt !important;
+  }
+
+  .print-copy th,
+  .print-copy td {
+    padding: 0.6mm 1mm !important;
+  }
+
+  /* Keep every rule and divider visible — printers drop backgrounds by default. */
+  .print-copy,
+  .print-copy * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
