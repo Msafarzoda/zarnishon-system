@@ -122,3 +122,25 @@ npm run verify  # 11 end-to-end checks against a live database (run after db:see
 the farmer, try to pay him twice, lend a farm money and watch it come back out of his
 next load, weigh a truck into a партия that is already approved — and then asks the
 integrity checks whether the books still hold.
+
+---
+
+## Troubleshooting
+
+**The page loads but has no styling — serif text, plain bullet lists, blue links.**
+
+`npm run build` was run while `npm run dev` was still going. Both write to `.next`, so
+the build replaces the stylesheet the dev server is serving. Nothing is wrong with the
+code:
+
+```bash
+rm -rf .next && npm run dev
+```
+
+Don't run `build` and `dev` at the same time in the same checkout.
+
+**`No purchase price is in force for this date`** — the owner has never set a price, or
+the last one is dated in the future. Sign in as the owner and set one at `/narkhho`.
+
+**`Таҳлили лаборатория тасдиқ нашудааст`** at the cash desk — the ticket's партия has no
+approved Форма №9-хл yet. The lab must approve it at `/laboratoriya` first.
