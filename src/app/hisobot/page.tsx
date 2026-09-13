@@ -18,6 +18,7 @@ import { cashOnHandD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
 import { runAllChecks } from "@/server/services/integrity";
+import { listReprints } from "@/server/services/printing";
 import { payableWeight } from "@/domain/weight";
 import {
   bpToPercentString,
@@ -207,6 +208,9 @@ export default async function DashboardPage() {
   // the ledger actually posted, and every issued serial must have a ticket.
   const findings = await runAllChecks(season);
 
+  // Each reprint is another stamped driver's copy that may be in circulation.
+  const reprints = await listReprints();
+
   const kg = (g: number) => `${gramsToKgString(g, 0)} ${tg.common.kg}`;
   const som = (d: number) => `${diramToSomoniString(d)} ${tg.common.somoni}`;
 
@@ -340,7 +344,7 @@ export default async function DashboardPage() {
           </Panel>
         )}
 
-        {(voided.length > 0 || overrides.length > 0) && (
+        {(voided.length > 0 || overrides.length > 0 || reprints.length > 0) && (
           <Panel title={tg.dashboard.alerts} tone="warn">
             {overrides.length > 0 && (
               <div className="mb-4">
@@ -353,6 +357,24 @@ export default async function DashboardPage() {
                       </span>
                       <span className="text-ink-soft">{o.reason}</span>
                       <span className="ms-auto text-ink-faint">{o.by}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {reprints.length > 0 && (
+              <div className="mb-4">
+                <h3 className="mb-2 text-sm font-medium">{tg.dashboard.reprints}</h3>
+                <ul className="space-y-1 text-sm">
+                  {reprints.map((r) => (
+                    <li key={r.serial} className="flex flex-wrap gap-2">
+                      <span className="font-mono">{r.serial}</span>
+                      <span className="font-semibold text-warn">
+                        {tg.ticket.printedTimes}: {r.count}
+                      </span>
+                      <span className="ms-auto text-ink-faint">
+                        {r.by} · {r.lastAt.toLocaleDateString("ru-RU")}
+                      </span>
                     </li>
                   ))}
                 </ul>

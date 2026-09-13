@@ -1,0 +1,97 @@
+import { and, eq, sql as raw } from "drizzle-orm";
+import { db } from "@/db/client";
+import { auditLog, weighTickets } from "@/db/schema/index";
+import { DomainError } from "@/domain/units";
+
+/**
+ * Recording every print of a Борхат.
+ *
+ * The stamped driver's copy is a bearer instrument: whoever holds it can claim payment.
+ * Nothing in software can stop a person pressing Ctrl+P, so the control is not
+ * prevention — it is that **every print is recorded and every reprint is visible to the
+ * owner**, with who printed it and when.
+ *
+ * A first print is routine. A second print of the same ticket means a second stamped
+ * driver's copy may exist, and that is exactly what the owner needs to see.
+ */
+
+export interface RecordPrintInput {
+  clientUuid: string;
+  ticketId: string;
+  actorId: string;
+  actorRole: string;
+  stationId?: string;
+  reason?: string;
+}
+
+export async function recordPrint(input: RecordPrintInput) {
+  const [ticket] = await db
+    .select({ id: weighTickets.id, serial: weighTickets.serial })
+    .from(weighTickets)
+    .where(eq(weighTickets.id, input.ticketId))
+    .limit(1);
+  if (!ticket) throw new DomainError("Борхат ёфт нашуд. / Ticket not found.");
+
+  const [before] = await db
+    .select({ n: raw<string>`COUNT(*)` })
+    .from(auditLog)
+    .where(and(eq(auditLog.entityId, ticket.id), eq(auditLog.action, "ticket.print")));
+
+  const previous = Number(before?.n ?? 0);
+
+  await db.insert(auditLog).values({
+    action: "ticket.print",
+    entityTable: "weigh_tickets",
+    entityId: ticket.id,
+    payload: {
+      serial: ticket.serial,
+      copies: 3,
+      // 0 on the original print; 1 and up mean extra stamped copies may now exist.
+      reprintNumber: previous,
+      reason: input.reason?.trim() ?? null,
+    },
+    actorId: input.actorId,
+    actorRole: input.actorRole,
+    stationId: input.stationId ?? null,
+    occurredAt: new Date(),
+  });
+
+  return { serial: ticket.serial, printCount: previous + 1, isReprint: previous > 0 };
+}
+
+export interface Reprint {
+  serial: string;
+  count: number;
+  lastAt: Date;
+  by: string | null;
+}
+
+/** Tickets printed more than once — each extra print is a possible extra driver's copy. */
+export async function listReprints(limit = 10): Promise<Reprint[]> {
+  const rows = await db.execute<{
+    serial: string;
+    count: string;
+    last_at: Date;
+    by: string | null;
+  }>(raw`
+    SELECT
+      (a.payload ->> 'serial')      AS serial,
+      COUNT(*)                      AS count,
+      MAX(a.occurred_at)            AS last_at,
+      MAX(u.full_name)              AS by
+    FROM audit_log a
+    LEFT JOIN users u ON u.id = a.actor_id
+    WHERE a.action = 'ticket.print'
+    GROUP BY a.payload ->> 'serial'
+    HAVING COUNT(*) > 1
+    ORDER BY MAX(a.occurred_at) DESC
+    LIMIT ${limit}
+  `);
+
+  return rows.map((r) => ({
+    serial: r.serial,
+    count: Number(r.count),
+    lastAt: new Date(r.last_at),
+    by: r.by,
+  }));
+}

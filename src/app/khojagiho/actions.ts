@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
 import { auditLog, counterparties, drivers, vehicles } from "@/db/schema/index";
 import { requireRole } from "@/lib/auth/session";
+import { DomainError } from "@/domain/units";
+import { isTransportOrg, normalisePlate } from "@/domain/plate";
 import { tg } from "@/lib/i18n/tg";
 
 export async function addFarmAction(_prev: { error?: string; ok?: string }, form: FormData) {
@@ -21,6 +23,7 @@ export async function addFarmAction(_prev: { error?: string; ok?: string }, form
       defaultLocation: String(form.get("place") ?? "").trim() || null,
       brigadeCode: String(form.get("brigade") ?? "").trim() || null,
       phone: String(form.get("phone") ?? "").trim() || null,
+      createdBy: user.id,
     })
     .returning();
   if (!row) return { error: tg.common.error };
@@ -40,16 +43,26 @@ export async function addFarmAction(_prev: { error?: string; ok?: string }, form
 }
 
 export async function addVehicleAction(_prev: { error?: string; ok?: string }, form: FormData) {
-  await requireRole("merchandiser", "weigher", "owner", "admin");
-  const plate = String(form.get("plate") ?? "").trim();
-  if (!plate) return { error: tg.common.required };
+  const user = await requireRole("merchandiser", "weigher", "owner", "admin");
+
+  let plate: string;
+  try {
+    // Same folding as the weighbridge, so a truck added here and a truck added at the
+    // scale cannot end up as two records. See src/domain/plate.ts.
+    plate = normalisePlate(String(form.get("plate") ?? "")).plate;
+  } catch (err) {
+    return { error: err instanceof DomainError ? err.message : tg.common.required };
+  }
+
+  const org = String(form.get("transportOrg") ?? "").trim();
 
   await db
     .insert(vehicles)
     .values({
       plate,
       model: String(form.get("model") ?? "").trim() || null,
-      transportOrg: String(form.get("transportOrg") ?? "").trim() || null,
+      transportOrg: isTransportOrg(org) ? org : null,
+      createdBy: user.id,
     })
     .onConflictDoNothing();
 
@@ -59,13 +72,14 @@ export async function addVehicleAction(_prev: { error?: string; ok?: string }, f
 }
 
 export async function addDriverAction(_prev: { error?: string; ok?: string }, form: FormData) {
-  await requireRole("merchandiser", "weigher", "owner", "admin");
+  const user = await requireRole("merchandiser", "weigher", "owner", "admin");
   const fullName = String(form.get("fullName") ?? "").trim();
   if (!fullName) return { error: tg.common.required };
 
   await db.insert(drivers).values({
     fullName,
     phone: String(form.get("phone") ?? "").trim() || null,
+    createdBy: user.id,
   });
 
   revalidatePath("/khojagiho");

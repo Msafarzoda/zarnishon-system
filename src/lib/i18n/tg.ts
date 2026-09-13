@@ -88,6 +88,9 @@ export const tg = {
     copyFactory: "Нусхаи корхона",
     copyDriver: "Нусхаи ронанда (бо мӯҳр)",
     copyNotice: "Ин нусхаро нигоҳ доред — бе он пардохт карда намешавад",
+    printedTimes: "Чоп шуд",
+    reprintWarning: "Ин борхат аллакай чоп шудааст. Нусхаи такрорӣ ба соҳиби корхона хабар дода мешавад.",
+    reprintReason: "Сабаби чопи такрорӣ",
   },
 
   ticketStatus: {
@@ -222,6 +225,7 @@ export const tg = {
     voidedTickets: "Борхатҳои бекоршуда",
     labOverrides: "Тағйироти лаборатория",
     newRecords: "Сабтҳои нави дар тарозу иловашуда",
+    reprints: "Борхатҳои такрорӣ чопшуда",
     alerts: "Огоҳиҳо",
     massBalance: "Тавозуни вазн",
   },

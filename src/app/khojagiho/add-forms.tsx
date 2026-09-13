@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { TRANSPORT_ORGS } from "@/domain/plate";
 import { tg } from "@/lib/i18n/tg";
 import { addDriverAction, addFarmAction, addVehicleAction } from "./actions";
 
@@ -82,15 +83,18 @@ function VehicleForm() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label className="label" htmlFor="plate">{tg.ticket.vehicleHint}</label>
-          <input id="plate" name="plate" required className="input tabular" placeholder="22-60" />
+          <input id="plate" name="plate" required className="input tabular"
+                 placeholder="1234 AB 01" />
         </div>
         <div>
           <label className="label" htmlFor="model">{tg.ticket.vehicle}</label>
-          <input id="model" name="model" className="input" placeholder="Газел 22-60" />
+          <input id="model" name="model" className="input" placeholder="Газел" />
         </div>
         <div>
           <label className="label" htmlFor="transportOrg">{tg.ticket.transportOrg}</label>
-          <input id="transportOrg" name="transportOrg" className="input" placeholder="Хусусӣ" />
+          <select id="transportOrg" name="transportOrg" className="input" defaultValue="Хусусӣ">
+            {TRANSPORT_ORGS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </div>
       </div>
       <Feedback state={state} />

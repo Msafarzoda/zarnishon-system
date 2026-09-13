@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DomainError, gramsToKgString, kgStringToGrams } from "@/domain/units";
 import { netWeight } from "@/domain/weight";
+import { TRANSPORT_ORGS, normalisePlate } from "@/domain/plate";
 import { submit, drain } from "@/lib/offline/station-client";
 import { tg } from "@/lib/i18n/tg";
 
@@ -272,9 +273,9 @@ function ArrivalForm({
           }))}
           addLabel={tg.scale.newVehicle}
           fields={[
-            { name: "plate", label: tg.ticket.vehicleHint, placeholder: "22-60", required: true },
-            { name: "model", label: tg.ticket.vehicle, placeholder: "Газел 22-60" },
-            { name: "transportOrg", label: tg.ticket.transportOrg, placeholder: "Хусусӣ" },
+            { name: "plate", label: tg.ticket.vehicleHint, placeholder: "1234 AB 01", required: true },
+            { name: "model", label: tg.ticket.vehicle, placeholder: "Газел" },
+            { name: "transportOrg", label: tg.ticket.transportOrg, options: TRANSPORT_ORGS },
           ]}
           onCreate={async (values) => {
             const id = crypto.randomUUID();
@@ -286,10 +287,12 @@ function ArrivalForm({
             if (res.kind === "rejected") return { error: res.message };
             // The server returns the existing row when this plate is already known.
             const resolved = res.kind === "applied" ? res.result.id : id;
+            const storedPlate =
+              res.kind === "applied" ? res.result.plate : normalisePlate(values.plate!).plate;
             setVehicleList((list) =>
               list.some((v) => v.id === resolved)
                 ? list
-                : [...list, { id: resolved, plate: values.plate!, model: values.model || null }],
+                : [...list, { id: resolved, plate: storedPlate, model: values.model || null }],
             );
             setVehicleId(resolved);
             return { ok: true };
@@ -369,6 +372,8 @@ interface QuickField {
   placeholder?: string;
   required?: boolean;
   inputMode?: "text" | "numeric" | "decimal";
+  /** When present the field is a dropdown — a fixed vocabulary, not free text. */
+  options?: readonly string[];
 }
 
 /**
@@ -445,14 +450,26 @@ function SelectWithAdd({
               <label className="label text-xs" htmlFor={`${id}-${f.name}`}>
                 {f.label}{f.required && " *"}
               </label>
-              <input
-                id={`${id}-${f.name}`}
-                className="input"
-                inputMode={f.inputMode}
-                placeholder={f.placeholder}
-                value={values[f.name] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
-              />
+              {f.options ? (
+                <select
+                  id={`${id}-${f.name}`}
+                  className="input"
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                >
+                  <option value="">—</option>
+                  {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input
+                  id={`${id}-${f.name}`}
+                  className="input"
+                  inputMode={f.inputMode}
+                  placeholder={f.placeholder}
+                  value={values[f.name] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
+                />
+              )}
             </div>
           ))}
           {error && <p role="alert" className="text-sm text-alarm">{error}</p>}

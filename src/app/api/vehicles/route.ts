@@ -1,13 +1,15 @@
 import { z } from "zod";
 import { handler } from "@/server/api";
 import { createVehicle } from "@/server/services/registry";
+import { TRANSPORT_ORGS } from "@/domain/plate";
 
 const schema = z.object({
   id: z.string().uuid(),
   clientUuid: z.string().uuid(),
   plate: z.string().min(1).max(40),
   model: z.string().max(80).optional(),
-  transportOrg: z.string().max(80).optional(),
+  /** Хусусӣ or Ширкатӣ — nothing else. */
+  transportOrg: z.enum(TRANSPORT_ORGS).optional(),
 });
 
 export const POST = handler({

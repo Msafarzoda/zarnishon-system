@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { auditLog, counterparties, drivers, vehicles } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
+import { normalisePlate } from "@/domain/plate";
 
 /**
  * Records a тарозубон must be able to create with a truck sitting on the weighbridge.
@@ -92,17 +93,20 @@ export interface CreateVehicleInput {
  * truck that is already known, and the right answer is to select it, not to stop him.
  */
 export async function createVehicle(input: CreateVehicleInput) {
-  const plate = input.plate.trim().toUpperCase();
-  if (!plate) throw new DomainError("Рақами давлатӣ ҳатмист. / A plate number is required.");
+  // Folds Cyrillic homoglyphs to Latin and collapses spacing, so "1234 АВ 01" typed on a
+  // Cyrillic keyboard and "1234ab01" are the same truck. See src/domain/plate.ts.
+  const { plate, standard } = normalisePlate(input.plate);
 
   const [byPlate] = await db.select().from(vehicles).where(eq(vehicles.plate, plate)).limit(1);
   if (byPlate) {
-    return { id: byPlate.id, plate: byPlate.plate, model: byPlate.model, created: false };
+    return { id: byPlate.id, plate: byPlate.plate, model: byPlate.model, standard, created: false };
   }
 
   const [existing] = await db.select().from(vehicles).where(eq(vehicles.id, input.id)).limit(1);
   if (existing) {
-    return { id: existing.id, plate: existing.plate, model: existing.model, created: false };
+    return {
+      id: existing.id, plate: existing.plate, model: existing.model, standard, created: false,
+    };
   }
 
   const [row] = await db
@@ -122,12 +126,14 @@ export async function createVehicle(input: CreateVehicleInput) {
     action: "vehicle.create",
     entityTable: "vehicles",
     entityId: row.id,
-    payload: { plate, model: row.model },
+    // `standard: false` means the plate did not match a Tajik pattern — kept, but worth
+    // the owner's eye on the review list.
+    payload: { plate, model: row.model, standard },
     actorId: input.createdBy,
     occurredAt: new Date(),
   });
 
-  return { id: row.id, plate: row.plate, model: row.model, created: true };
+  return { id: row.id, plate: row.plate, model: row.model, standard, created: true };
 }
 
 export interface CreateDriverInput {

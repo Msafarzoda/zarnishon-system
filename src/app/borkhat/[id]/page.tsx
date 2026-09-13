@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  auditLog,
   batches,
   counterparties,
   drivers,
@@ -67,6 +68,14 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
 
   if (!t) notFound();
 
+  // How many times this Борхат has already been printed. Each print puts another stamped
+  // driver's copy into the world, so the button says so and asks for a reason.
+  const [printed] = await db
+    .select({ n: raw<string>`COUNT(*)` })
+    .from(auditLog)
+    .where(and(eq(auditLog.entityId, t.id), eq(auditLog.action, "ticket.print")));
+  const printCount = Number(printed?.n ?? 0);
+
   const copies = [
     { key: "guard", label: tg.ticket.copyGuard, stamped: false },
     { key: "factory", label: tg.ticket.copyFactory, stamped: false },
@@ -81,7 +90,12 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
         <span className="badge bg-white text-ink-soft">
           {tg.ticketStatus[t.status as keyof typeof tg.ticketStatus]}
         </span>
-        <PrintButton />
+        {printCount > 0 && (
+          <span className="badge bg-amber-100 text-warn">
+            {tg.ticket.printedTimes}: {printCount}
+          </span>
+        )}
+        <PrintButton ticketId={t.id} alreadyPrinted={printCount} />
       </div>
 
       <div className="mx-auto max-w-[210mm] space-y-4 px-4">
