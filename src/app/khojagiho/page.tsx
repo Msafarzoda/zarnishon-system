@@ -34,18 +34,22 @@ export default async function FarmsPage() {
       tin: counterparties.tin,
       place: counterparties.defaultLocation,
       phone: counterparties.phone,
+      // Interpolating a Drizzle column into a raw template renders it UNQUALIFIED
+      // ("id"), which collides with ledger_accounts.id inside these correlated
+      // subqueries — Postgres rejects the whole query as ambiguous. The outer table is
+      // named explicitly instead.
       advanceD: raw<string>`COALESCE((
         SELECT SUM(e.amount_d) FROM ledger_entries e
         JOIN ledger_accounts a ON a.id = e.account_id
-        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = ${counterparties.id}
+        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = counterparties.id
       ), 0)`,
       unpaidTickets: raw<string>`COALESCE((
         SELECT COUNT(*) FROM weigh_tickets t
-        WHERE t.consignor_id = ${counterparties.id} AND t.status = 'ANALYSED'
+        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
       ), 0)`,
       deliveredG: raw<string>`COALESCE((
         SELECT SUM(t.net_g) FROM weigh_tickets t
-        WHERE t.consignor_id = ${counterparties.id} AND t.status <> 'VOID'
+        WHERE t.consignor_id = counterparties.id AND t.status <> 'VOID'
       ), 0)`,
     })
     .from(counterparties)
@@ -71,6 +75,7 @@ export default async function FarmsPage() {
                 <th className="py-1 text-start font-medium">{tg.ticket.consignor}</th>
                 <th className="py-1 text-start font-medium">{tg.ticket.tin}</th>
                 <th className="py-1 text-start font-medium">{tg.ticket.loadingPlace}</th>
+                <th className="py-1 text-start font-medium">{tg.common.phone}</th>
                 <th className="py-1 text-end font-medium">{tg.dashboard.cottonReceived}</th>
                 <th className="py-1 text-end font-medium">{tg.dashboard.unpaidTickets}</th>
                 <th className="py-1 text-end font-medium">{tg.advance.outstanding}</th>
@@ -84,6 +89,9 @@ export default async function FarmsPage() {
                     <td className="py-2 font-medium">{f.name}</td>
                     <td className="py-2 tabular text-ink-soft">{f.tin ?? "—"}</td>
                     <td className="py-2 text-ink-soft">{f.place ?? "—"}</td>
+                    <td className="py-2 tabular text-ink-soft">
+                      {f.phone ? <a href={`tel:${f.phone}`} className="hover:underline">{f.phone}</a> : "—"}
+                    </td>
                     <td className="py-2 text-end tabular">
                       {gramsToKgString(Number(f.deliveredG), 0)} {tg.common.kg}
                     </td>
@@ -95,7 +103,7 @@ export default async function FarmsPage() {
                 );
               })}
               {farms.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-ink-faint">
+                <tr><td colSpan={7} className="py-8 text-center text-ink-faint">
                   {tg.common.nothingFound}
                 </td></tr>
               )}

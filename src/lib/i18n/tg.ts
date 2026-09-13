@@ -227,6 +227,7 @@ export const tg = {
   },
 
   common: {
+    phone: "Телефон",
     save: "Нигоҳ доштан",
     cancel: "Бекор кардан",
     confirm: "Тасдиқ",

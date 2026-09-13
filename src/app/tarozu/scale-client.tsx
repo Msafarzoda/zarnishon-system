@@ -26,7 +26,7 @@ interface Props {
     id: string; serial: string; netG: number | null; status: string;
     farm: string; plate: string | null;
   }[];
-  farms: { id: string; name: string; tin: string | null; place: string | null }[];
+  farms: { id: string; name: string; tin: string | null; place: string | null; phone: string | null }[];
   drivers: { id: string; fullName: string }[];
   vehicles: { id: string; plate: string; model: string | null }[];
   batches: { id: string; number: number; grade: number | null }[];
@@ -233,19 +233,27 @@ function ArrivalForm({
               { name: "name", label: tg.ticket.consignor, placeholder: "х-д Билол-Б", required: true },
               { name: "tin", label: `${tg.ticket.tin} (${tg.scale.tinHint})`, placeholder: "5830076707", inputMode: "numeric" },
               { name: "place", label: tg.ticket.loadingPlace, placeholder: "ч.Бустон" },
+              { name: "phone", label: tg.common.phone, placeholder: "+992 __ ___ __ __" },
             ]}
             onCreate={async (values) => {
               const id = crypto.randomUUID();
               const res = await submit<{ id: string; name: string; tin: string | null }>(
                 "/api/counterparties",
                 { id, kind: "farm", name: values.name, tin: values.tin || undefined,
-                  defaultLocation: values.place || undefined },
+                  defaultLocation: values.place || undefined,
+                  phone: values.phone || undefined },
               );
               if (res.kind === "rejected") return { error: res.message };
               // Queued offline: the id is ours, so the ticket can name it straight away.
               setFarmList((list) => [
                 ...list,
-                { id, name: values.name!, tin: values.tin || null, place: values.place || null },
+                {
+                  id,
+                  name: values.name!,
+                  tin: values.tin || null,
+                  place: values.place || null,
+                  phone: values.phone || null,
+                },
               ]);
               setConsignorId(id);
               return { ok: true };

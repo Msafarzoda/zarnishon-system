@@ -61,8 +61,9 @@ function FarmForm() {
           <input id="brigade" name="brigade" className="input" />
         </div>
         <div>
-          <label className="label" htmlFor="phone">{tg.ticket.driverHint}</label>
-          <input id="phone" name="phone" className="input" />
+          <label className="label" htmlFor="phone">{tg.common.phone}</label>
+          <input id="phone" name="phone" type="tel" className="input"
+                 placeholder="+992 __ ___ __ __" />
         </div>
       </div>
       <input type="hidden" name="kind" value="farm" />
@@ -111,8 +112,9 @@ function DriverForm() {
                  placeholder="Восиев Баҳром" />
         </div>
         <div>
-          <label className="label" htmlFor="dphone">{tg.ticket.driver}</label>
-          <input id="dphone" name="phone" className="input" />
+          <label className="label" htmlFor="dphone">{tg.common.phone}</label>
+          <input id="dphone" name="phone" type="tel" className="input"
+                 placeholder="+992 __ ___ __ __" />
         </div>
       </div>
       <Feedback state={state} />

@@ -73,7 +73,7 @@ export default async function ScalePage() {
   const [farmList, driverList, vehicleList, batchList, varietyList] = await Promise.all([
     db
       .select({ id: counterparties.id, name: counterparties.name, tin: counterparties.tin,
-                place: counterparties.defaultLocation })
+                place: counterparties.defaultLocation, phone: counterparties.phone })
       .from(counterparties)
       .where(and(eq(counterparties.isActive, true), inArray(counterparties.kind, ["farm", "individual"])))
       .orderBy(asc(counterparties.name)),
