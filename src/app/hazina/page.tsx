@@ -14,6 +14,7 @@ import {
 import { requirePageRole } from "@/lib/auth/session";
 import { cashOnHandD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
+import { priceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { CashClient } from "./cash-client";
@@ -101,13 +102,9 @@ export default async function CashDeskPage() {
     }
   }
 
-  // The headline figure is the general quote, which is what the owner normally sets.
-  let generalPriceDPerKg: number | null = null;
-  try {
-    generalPriceDPerKg = (await resolvePriceAt(now, null)).priceDPerKg;
-  } catch {
-    generalPriceDPerKg = null;
-  }
+  // The headline figure is the general quote, which is what the owner normally sets —
+  // and which way it has moved, because that is what a waiting farmer is deciding on.
+  const trend = await priceTrend(now);
 
   // Why the list is empty matters to the cashier. A load sits at the weighbridge, then
   // at the lab, and only then reaches this desk — "nothing found" on its own looks like
@@ -158,7 +155,7 @@ export default async function CashDeskPage() {
     <Shell user={user} title={tg.cash.title}>
       <CashClient
         cashOnHandD={await cashOnHandD()}
-        generalPriceDPerKg={generalPriceDPerKg}
+        trend={trend}
         priceError={priceError}
         onScale={Number(upstream?.onScale ?? 0)}
         awaitingLab={Number(upstream?.awaitingLab ?? 0)}

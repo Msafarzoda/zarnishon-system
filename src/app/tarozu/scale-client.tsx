@@ -148,8 +148,12 @@ export function ScaleClient(props: Props) {
                     <TicketProgress ticket={t} size="sm" />
                     {/* A finished ticket says so; an unfinished one says what it needs. */}
                     {still && (
-                      <span className="text-xs text-warn">
-                        {tg.gate.waitingFor}: {still}
+                      <span
+                        className={`text-xs ${still.outstanding ? "text-warn" : "text-brand"}`}
+                      >
+                        {still.outstanding
+                          ? `${tg.gate.waitingFor}: ${still.label}`
+                          : `${still.label} — ${tg.cash.farmerChoosesWhen}`}
                       </span>
                     )}
                   </div>

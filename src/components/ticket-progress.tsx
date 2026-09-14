@@ -21,7 +21,15 @@ export interface TicketStage {
   status: string;
 }
 
-type StepState = "done" | "next" | "todo";
+/**
+ * `ready` is not `next`.
+ *
+ * A complete ticket that has not been paid is not stuck and nobody is late. The farmer is
+ * holding his stamped copy and waiting for a price he likes — the whole reason the system
+ * lets him keep it. Showing that as an outstanding task would turn a deliberate decision
+ * into a chase.
+ */
+type StepState = "done" | "next" | "ready" | "todo";
 
 export function TicketProgress({
   ticket,
@@ -36,7 +44,7 @@ export function TicketProgress({
   const paid = ticket.status === "PAID";
   const voided = ticket.status === "VOID";
 
-  const steps: { label: string; value?: string; done: boolean }[] = [
+  const steps: { label: string; value?: string; done: boolean; ready?: boolean }[] = [
     {
       label: tg.ticket.gross,
       value: gross ? `${gramsToKgString(ticket.grossG!, 1)} ${tg.common.kg}` : undefined,
@@ -48,7 +56,8 @@ export function TicketProgress({
       done: tare,
     },
     { label: tg.lab.title, done: analysed },
-    { label: tg.ticket.paidStep, done: paid },
+    // Payable the moment the lab signs off, and then it simply waits for the farmer.
+    { label: tg.ticket.paidStep, done: paid, ready: analysed && !paid },
   ];
 
   // The first unfinished step is the one somebody has to do next.
@@ -63,9 +72,11 @@ export function TicketProgress({
           ? "todo"
           : step.done
             ? "done"
-            : i === nextIndex
-              ? "next"
-              : "todo";
+            : step.ready
+              ? "ready"
+              : i === nextIndex
+                ? "next"
+                : "todo";
         return (
           <li key={step.label} className="flex items-center gap-1.5">
             {i > 0 && (
@@ -87,9 +98,11 @@ function Step({
   const style =
     state === "done"
       ? "bg-brand-light text-brand-dark border-brand/30"
-      : state === "next"
-        ? "bg-amber-100 text-warn border-warn/40 font-semibold"
-        : "bg-paper text-ink-faint border-paper-line";
+      : state === "ready"
+        ? "bg-white text-brand border-brand font-semibold"
+        : state === "next"
+          ? "bg-amber-100 text-warn border-warn/40 font-semibold"
+          : "bg-paper text-ink-faint border-paper-line";
 
   return (
     <span
@@ -98,19 +111,29 @@ function Step({
       }`}
     >
       {/* Shape as well as colour, so the state survives a monochrome screen. */}
-      <span aria-hidden>{state === "done" ? "✓" : state === "next" ? "▸" : "○"}</span>
+      <span aria-hidden>
+        {state === "done" ? "✓" : state === "next" ? "▸" : state === "ready" ? "●" : "○"}
+      </span>
       <span>{label}</span>
       {value && <span className="tabular font-medium">{value}</span>}
     </span>
   );
 }
 
-/** What this ticket is waiting for, in words. Empty when it is complete. */
-export function waitingFor(ticket: TicketStage): string | null {
-  if (ticket.status === "VOID") return null;
-  if (ticket.status === "PAID") return null;
-  if (ticket.grossG === null) return tg.ticket.gross;
-  if (ticket.tareG === null) return tg.ticket.tareShort;
-  if (ticket.status !== "ANALYSED") return tg.lab.title;
-  return tg.cash.readyToPayShort;
+export interface TicketWaiting {
+  label: string;
+  /**
+   * `false` when the ticket is complete and simply unpaid — the farm's decision, not a
+   * task for the factory, and it must not be dressed up as one.
+   */
+  outstanding: boolean;
+}
+
+/** What this ticket is waiting for, in words. Null when there is nothing to say. */
+export function waitingFor(ticket: TicketStage): TicketWaiting | null {
+  if (ticket.status === "VOID" || ticket.status === "PAID") return null;
+  if (ticket.grossG === null) return { label: tg.ticket.gross, outstanding: true };
+  if (ticket.tareG === null) return { label: tg.ticket.tareShort, outstanding: true };
+  if (ticket.status !== "ANALYSED") return { label: tg.lab.title, outstanding: true };
+  return { label: tg.cash.readyToPayShort, outstanding: false };
 }

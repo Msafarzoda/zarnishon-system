@@ -14,9 +14,10 @@ import { requirePageRole } from "@/lib/auth/session";
 import { bpToPercentString, diramToSomoniString, divRound, gramsToKgString } from "@/domain/units";
 import { payableWeight } from "@/domain/weight";
 import { outstandingAdvanceD } from "@/server/services/balances";
-import { resolvePriceAt } from "@/server/services/pricing";
+import { priceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
+import { PriceTrendStat } from "@/components/price-trend";
 
 export const dynamic = "force-dynamic";
 
@@ -102,12 +103,9 @@ export default async function FarmAccountPage({
 
   const advanceOutstandingD = await outstandingAdvanceD(farm.id);
 
-  let priceDPerKg: number | null = null;
-  try {
-    priceDPerKg = (await resolvePriceAt(new Date(), null)).priceDPerKg;
-  } catch {
-    priceDPerKg = null;
-  }
+  // The farm is watching this number, not the weight: it decides when to be paid.
+  const trend = await priceTrend();
+  const priceDPerKg = trend.currentD;
 
   // Totals, computed with the same tested functions the cash desk settles with.
   let deliveredG = 0;
@@ -160,6 +158,21 @@ export default async function FarmAccountPage({
             )}
           </div>
         </section>
+
+        {unpaidPayableG > 0 && (
+          <section className="grid gap-4 sm:grid-cols-2">
+            <PriceTrendStat trend={trend} />
+            <div className="card border-brand bg-brand-light px-4 py-3">
+              <div className="text-sm text-brand-dark">{tg.cash.worthToday}</div>
+              <div className="tabular text-2xl font-bold leading-tight text-brand-dark">
+                {owedValueD !== null ? som(owedValueD) : "—"}
+              </div>
+              <div className="mt-1 text-xs text-brand-dark/70">
+                {kg(unpaidPayableG)} · {tg.cash.waitingByChoice}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Tile label={tg.account.delivered} value={kg(deliveredG)}

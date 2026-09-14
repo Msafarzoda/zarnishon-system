@@ -10,6 +10,8 @@ import {
 } from "@/domain/units";
 import { settleTicket } from "@/domain/settlement";
 import { submit } from "@/lib/offline/station-client";
+import { PriceTrendStat } from "@/components/price-trend";
+import type { PriceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 
 interface UnpaidTicket {
@@ -44,10 +46,10 @@ export interface PaidRow {
 }
 
 export function CashClient({
-  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms, onScale, awaitingLab, history,
+  cashOnHandD, trend, priceError, tickets, farms, onScale, awaitingLab, history,
 }: {
   cashOnHandD: number;
-  generalPriceDPerKg: number | null;
+  trend: PriceTrend;
   priceError: string | null;
   tickets: UnpaidTicket[];
   farms: { id: string; name: string }[];
@@ -80,14 +82,12 @@ export function CashClient({
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat label={tg.cash.cashOnHand} value={`${diramToSomoniString(cashOnHandD)} ${tg.common.somoni}`} />
+        <PriceTrendStat trend={trend} />
         <Stat
-          label={tg.price.current}
-          value={generalPriceDPerKg !== null
-            ? `${diramToSomoniString(generalPriceDPerKg)} ${tg.price.perKg}`
-            : "—"}
-          tone={generalPriceDPerKg === null ? "bad" : undefined}
+          label={tg.dashboard.unpaidTickets}
+          value={String(tickets.length)}
+          hint={tickets.length > 0 ? tg.cash.waitingByChoice : undefined}
         />
-        <Stat label={tg.dashboard.unpaidTickets} value={String(tickets.length)} />
       </div>
 
       {priceError && (
@@ -177,8 +177,16 @@ export function CashClient({
                     {tg.advance.outstanding} {diramToSomoniString(t.advanceD)}
                   </span>
                 )}
-                <span className="ms-auto tabular font-semibold">
-                  {gramsToKgString(t.netG, 1)} {tg.common.kg}
+                <span className="ms-auto text-end">
+                  <span className="tabular block font-semibold">
+                    {gramsToKgString(t.netG, 1)} {tg.common.kg}
+                  </span>
+                  {/* What it is worth if he takes it today. The only question he asks. */}
+                  {t.priceDPerKg !== null && (
+                    <span className="tabular block text-xs text-ink-soft">
+                      ≈ {diramToSomoniString(valueToday(t))} {tg.common.somoni}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>
@@ -189,13 +197,27 @@ export function CashClient({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "bad" }) {
+/** Today's value of an unpaid load, at today's price and its own lab deduction. */
+function valueToday(t: UnpaidTicket): number {
+  const s = settleTicket({
+    netG: t.netG,
+    deductionBp: t.deductionBp,
+    priceDPerKg: t.priceDPerKg ?? 0,
+    outstandingAdvanceD: 0,
+  });
+  return s.grossAmountD;
+}
+
+function Stat({
+  label, value, tone, hint,
+}: { label: string; value: string; tone?: "bad"; hint?: string }) {
   return (
     <div className="card px-4 py-3">
       <div className="text-sm text-ink-soft">{label}</div>
-      <div className={`tabular text-2xl font-bold ${tone === "bad" ? "text-alarm" : ""}`}>
+      <div className={`tabular text-2xl font-bold leading-tight ${tone === "bad" ? "text-alarm" : ""}`}>
         {value}
       </div>
+      {hint && <div className="mt-1 text-xs text-ink-faint">{hint}</div>}
     </div>
   );
 }
