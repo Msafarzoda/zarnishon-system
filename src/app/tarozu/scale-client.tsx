@@ -6,6 +6,7 @@ import { DomainError, gramsToKgString, kgStringToGrams } from "@/domain/units";
 import { netWeight } from "@/domain/weight";
 import { TRANSPORT_ORGS, normalisePlate } from "@/domain/plate";
 import { submit, drain } from "@/lib/offline/station-client";
+import { newClientUuid } from "@/lib/offline/outbox";
 import { useScale } from "@/lib/scale/use-scale";
 import { ScalePanel } from "@/components/scale-panel";
 import { ManualWeight } from "@/components/manual-weight";
@@ -81,6 +82,7 @@ export function ScaleClient(props: Props) {
 
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={() => setTab("depart")}
           className={tab === "depart" ? "btn-primary btn-lg" : "btn-secondary btn-lg"}
         >
@@ -92,6 +94,7 @@ export function ScaleClient(props: Props) {
           )}
         </button>
         <button
+          type="button"
           onClick={() => setTab("arrive")}
           className={tab === "arrive" ? "btn-primary btn-lg" : "btn-secondary btn-lg"}
         >
@@ -170,6 +173,17 @@ function ArrivalForm({
   const weightG = manual?.weightG ?? fromScale?.weightG ?? null;
 
   const farm = farmList.find((f) => f.id === consignorId);
+
+  // Everything still standing between the operator and a saved Борхат, named. The button
+  // was simply disabled before, which looks identical to a screen that does not work.
+  const missing: string[] = [];
+  if (!consignorId) missing.push(tg.ticket.consignor);
+  if (!batchId) missing.push(tg.ticket.batch);
+  if (weightG === null || weightG <= 0) {
+    missing.push(
+      scale.status === "streaming" && !scale.settled ? tg.scale.unstable : tg.ticket.gross,
+    );
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -256,7 +270,7 @@ function ArrivalForm({
               { name: "phone", label: tg.common.phone, placeholder: "+992 __ ___ __ __" },
             ]}
             onCreate={async (values) => {
-              const id = crypto.randomUUID();
+              const id = newClientUuid();
               const res = await submit<{ id: string; name: string; tin: string | null }>(
                 "/api/counterparties",
                 { id, kind: "farm", name: values.name, tin: values.tin || undefined,
@@ -297,7 +311,7 @@ function ArrivalForm({
             { name: "transportOrg", label: tg.ticket.transportOrg, options: TRANSPORT_ORGS },
           ]}
           onCreate={async (values) => {
-            const id = crypto.randomUUID();
+            const id = newClientUuid();
             const res = await submit<{ id: string; plate: string; model: string | null }>(
               "/api/vehicles",
               { id, plate: values.plate, model: values.model || undefined,
@@ -330,7 +344,7 @@ function ArrivalForm({
             { name: "phone", label: tg.ticket.driver, placeholder: "" },
           ]}
           onCreate={async (values) => {
-            const id = crypto.randomUUID();
+            const id = newClientUuid();
             const res = await submit<{ id: string }>("/api/drivers", {
               id, fullName: values.fullName, phone: values.phone || undefined,
             });
@@ -373,12 +387,14 @@ function ArrivalForm({
       />
 
       <button type="submit"
-              disabled={busy || !consignorId || !batchId || weightG === null || weightG <= 0}
+              disabled={busy || missing.length > 0}
               className="btn-primary btn-lg w-full">
         {busy ? tg.common.loading : tg.scale.captureGross}
       </button>
-      {weightG === null && (
-        <p className="text-center text-sm text-ink-faint">{tg.scale.captureWhenStable}</p>
+      {missing.length > 0 && (
+        <p className="text-center text-sm text-warn">
+          {tg.scale.cannotSaveYet}: {missing.join(" · ")}
+        </p>
       )}
     </form>
   );
@@ -641,6 +657,15 @@ function TareCard({
                 </div>
               </div>
             )
+          )}
+
+          {tareG === null && (
+            <p className="text-sm text-warn">
+              {tg.scale.cannotSaveYet}:{" "}
+              {scale.status === "streaming" && !scale.settled
+                ? tg.scale.unstable
+                : tg.ticket.tare}
+            </p>
           )}
 
           <div className="flex gap-2">

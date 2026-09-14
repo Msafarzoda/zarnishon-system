@@ -70,6 +70,7 @@ export function ConnectionBadge() {
   return (
     <div className="relative">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
         className={`badge ${
           clean
@@ -89,7 +90,7 @@ export function ConnectionBadge() {
         <div className="absolute end-0 z-20 mt-2 w-80 rounded-lg border border-paper-line bg-white p-3 text-ink shadow-lg">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold">{tg.app.queueTitle}</span>
-            <button onClick={flushNow} disabled={busy || !online} className="btn-secondary px-2 py-1 text-xs">
+            <button type="button" onClick={flushNow} disabled={busy || !online} className="btn-secondary px-2 py-1 text-xs">
               {busy ? tg.common.loading : tg.app.sendNow}
             </button>
           </div>

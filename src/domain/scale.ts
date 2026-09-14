@@ -66,13 +66,18 @@ export const SCALE_PROTOCOLS: Record<string, ScaleProtocol> = {
 export interface ScaleReading {
   /** Integer grams — the same unit every weight in the system is kept in. */
   weightG: number;
-  /**
-   * Whether the indicator declared this frame settled.
-   *
-   * Protocols with no stability flag report `false`; for those the station decides
-   * stability by watching the number stop changing. See `isSettled`.
-   */
+  /** Whether the indicator declared this frame settled. Only meaningful when
+   *  `stabilityKnown` is true. */
   stable: boolean;
+  /**
+   * Whether this indicator reports stability at all.
+   *
+   * The distinction decides everything: an indicator that says "in motion" must be
+   * believed, and no amount of the number looking steady may override it. A truck
+   * oscillating slowly passes right through a numeric "has it stopped changing?" test
+   * while it is still settling, and the weight captured is then wrong.
+   */
+  stabilityKnown: boolean;
   /** The frame exactly as it came off the wire, stored with the weighing. */
   raw: string;
 }
@@ -104,9 +109,10 @@ export function parseScaleFrame(
   const weightG = divRound(Math.round(value * 1000) * perUnit, 1000);
 
   const status = groups.status?.toUpperCase();
-  const stable = status ? protocol.stableTokens.includes(status) : false;
+  const stabilityKnown = status !== undefined && protocol.stableTokens.length > 0;
+  const stable = stabilityKnown ? protocol.stableTokens.includes(status!) : false;
 
-  return { weightG, stable, raw: frame.trim() };
+  return { weightG, stable, stabilityKnown, raw: frame.trim() };
 }
 
 /** Build a protocol for an indicator not in the list above, without changing code. */
@@ -140,15 +146,24 @@ export function customProtocol(
  */
 export function isSettled(
   readings: readonly ScaleReading[],
-  { samples = 5, toleranceG = 20_000 }: { samples?: number; toleranceG?: number } = {},
+  { samples = 5, toleranceG = 1_000 }: { samples?: number; toleranceG?: number } = {},
 ): boolean {
   if (readings.length < samples) return false;
   const window = readings.slice(-samples);
 
-  // An indicator that reports stability is believed — it knows more than we do.
-  if (window.every((r) => r.stable)) return true;
-  if (window.some((r) => r.stable)) return false;
+  // An indicator that reports stability is believed, and believed absolutely. It has the
+  // load cell; we have a number that arrived a moment ago. Falling back to "the number
+  // looks steady" when it says otherwise is how a truck still settling on its springs
+  // gets captured — the oscillation is slow near the turning points, so a few frames in
+  // a row can sit within any tolerance while the platform is plainly still moving.
+  if (window.some((r) => r.stabilityKnown)) {
+    return window.every((r) => r.stabilityKnown && r.stable);
+  }
 
+  // Only for indicators with no stability flag at all: has the number stopped changing?
+  // The default tolerance is below one division of any weighbridge, so in practice this
+  // means the readings are identical, while still forgiving an indicator that reports
+  // in grams and jitters on the last digit.
   const weights = window.map((r) => r.weightG);
   return Math.max(...weights) - Math.min(...weights) <= toleranceG;
 }
@@ -220,6 +235,8 @@ export function parseToledoContinuous(frame: string): ToledoReading | null {
     weightG: negative ? -scaled : scaled,
     // Over capacity is never a usable reading, whatever the motion bit says.
     stable: !inMotion && !overCapacity,
+    // The Toledo frame always carries a motion bit, so stability is always known.
+    stabilityKnown: true,
     raw: describeFrame(frame),
     net: (swb & 0x01) !== 0,
     overCapacity,

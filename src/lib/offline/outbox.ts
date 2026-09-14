@@ -93,8 +93,40 @@ function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBReque
   );
 }
 
+/**
+ * A v4 UUID, without requiring a secure context.
+ *
+ * `crypto.randomUUID()` is **only defined on https and localhost**. On a factory LAN the
+ * stations reach the server at a plain http address, where it is simply missing — and
+ * calling it threw before a single write left the screen, so tickets, weighings and
+ * payments all failed silently. `crypto.getRandomValues` has no such restriction, so the
+ * id is assembled from it instead.
+ *
+ * These ids are idempotency keys, not secrets; the only requirement is that two stations
+ * never generate the same one.
+ */
 export function newClientUuid(): string {
-  return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    // No Web Crypto at all. Weaker, but a station that cannot generate an id cannot
+    // record a truck, and that is the worse outcome.
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // variant 10
+
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0"));
+  return (
+    hex.slice(0, 4).join("") + "-" +
+    hex.slice(4, 6).join("") + "-" +
+    hex.slice(6, 8).join("") + "-" +
+    hex.slice(8, 10).join("") + "-" +
+    hex.slice(10, 16).join("")
+  );
 }
 
 const ACTOR_KEY = "zarnishon-actor";

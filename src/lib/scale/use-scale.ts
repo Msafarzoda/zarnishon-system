@@ -32,8 +32,20 @@ export type ScaleStatus =
   | "streaming"
   | "error";
 
+/** Why the port cannot be opened — the two causes need different answers. */
+export type UnsupportedReason =
+  /** The page is plain http on a LAN address. Browsers only allow serial on a
+   *  secure origin: https, or http://localhost. */
+  | "insecure-origin"
+  /** The browser has no Web Serial at all — Safari, Firefox, or a phone. */
+  | "no-web-serial";
+
 export interface ScaleState {
   status: ScaleStatus;
+  /** Set when `status` is "unsupported". */
+  unsupportedReason: UnsupportedReason | null;
+  /** The origin the page was opened on, so the message can name it. */
+  origin: string;
   /**
    * True while the readings are coming from the simulator rather than a real indicator.
    * A weighing taken in this state is never stored as `source: "indicator"` — forging
@@ -57,6 +69,8 @@ const HISTORY = 8;
 export function useScale() {
   const [state, setState] = useState<ScaleState>({
     status: "disconnected",
+    unsupportedReason: null,
+    origin: "",
     simulated: false,
     reading: null,
     settled: false,
@@ -73,9 +87,20 @@ export function useScale() {
   const detectedRef = useRef<DetectedProtocol | null>(null);
 
   useEffect(() => {
-    if (typeof navigator !== "undefined" && !navigator.serial) {
-      setState((s) => ({ ...s, status: "unsupported" }));
+    if (typeof window === "undefined") return;
+    const origin = window.location.origin;
+
+    // Distinguish the two failures. They look identical to the operator and have
+    // completely different fixes: one is the address the page was opened on, the other
+    // is the browser itself.
+    if (!navigator.serial) {
+      const reason: UnsupportedReason = window.isSecureContext
+        ? "no-web-serial"
+        : "insecure-origin";
+      setState((s) => ({ ...s, status: "unsupported", unsupportedReason: reason, origin }));
+      return;
     }
+    setState((s) => ({ ...s, origin }));
   }, []);
 
   /** Everything a frame does to the screen, wherever the frame came from. */
@@ -208,10 +233,11 @@ export function useScale() {
     } catch {
       // Already gone.
     }
-    setState({
+    setState((s) => ({
+      ...s,
       status: "disconnected", simulated: false, reading: null, settled: false,
       detected: null, frames: [], error: null,
-    });
+    }));
   }, []);
 
   // A port the operator approved once is reopened silently on every later visit, so the

@@ -6,6 +6,20 @@ import type { ScaleState } from "@/lib/scale/use-scale";
 import type { ScaleReading } from "@/domain/scale";
 import { tg } from "@/lib/i18n/tg";
 
+/**
+ * The same page on the machine that is serving it — `http://localhost:<port>` — which
+ * browsers do treat as a secure origin, so the port can be opened there without https.
+ */
+function localhostEquivalent(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return null;
+    return `http://localhost${url.port ? `:${url.port}` : ""}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Only the Toledo frame reports capacity; other indicators simply never say so. */
 function isOverCapacity(reading: ScaleReading | null): boolean {
   return reading !== null && "overCapacity" in reading && reading.overCapacity === true;
@@ -36,10 +50,39 @@ export function ScalePanel({
   const { status, reading, settled } = scale;
 
   if (status === "unsupported") {
+    // The two causes look the same to an operator and have completely different fixes.
+    const insecure = scale.unsupportedReason === "insecure-origin";
+    const localhostUrl = localhostEquivalent(scale.origin);
+
     return (
-      <div className="rounded-lg border border-warn bg-amber-50 p-4 text-warn">
-        <p className="font-medium">{tg.scale.serialUnsupported}</p>
-        <p className="mt-1 text-sm">{tg.scale.serialUnsupportedHint}</p>
+      <div className="rounded-lg border border-warn bg-amber-50 p-4">
+        <p className="font-medium text-warn">
+          {insecure ? tg.scale.insecureOrigin : tg.scale.serialUnsupported}
+        </p>
+        <p className="mt-1 text-sm text-warn/90">
+          {insecure ? tg.scale.insecureOriginHint : tg.scale.serialUnsupportedHint}
+        </p>
+
+        {insecure && (
+          <div className="mt-2 space-y-1 text-sm">
+            <p className="text-warn/80">
+              {tg.scale.currentAddress}:{" "}
+              <span className="font-mono">{scale.origin || "—"}</span>
+            </p>
+            {localhostUrl && (
+              <p className="text-warn/80">
+                {tg.scale.openOnServer}:{" "}
+                <a href={localhostUrl} className="font-mono font-semibold underline">
+                  {localhostUrl}
+                </a>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Without this the operator cannot even rehearse — which is what made this
+            panel a dead end the first time. */}
+        {allowSimulation && <SimulateControls scale={scale} />}
       </div>
     );
   }

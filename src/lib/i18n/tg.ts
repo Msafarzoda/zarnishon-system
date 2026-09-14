@@ -154,8 +154,16 @@ export const tg = {
     overCapacity: "Аз ҳад зиёд — вазн дуруст нест",
     readingFromScale: "Аз тарозу хонда мешавад",
     captureWhenStable: "Вақте ки рақам устувор шуд, тугмаро пахш кунед",
+    cannotSaveYet: "Барои сабт лозим аст",
     serialUnsupported: "Ин браузер ба тарозу пайваст шуда наметавонад",
-    serialUnsupportedHint: "Google Chrome ё Microsoft Edge-ро истифода баред (HTTPS лозим аст)",
+    serialUnsupportedHint: "Дар компютер Google Chrome ё Microsoft Edge-ро истифода баред",
+    insecureOrigin: "Барои пайваст ба тарозу HTTPS лозим аст",
+    insecureOriginHint:
+      "Браузер танҳо дар HTTPS ё дар localhost ба порти тарозу иҷозат медиҳад. " +
+      "Тарозуро ба ҳамон компютере пайваст кунед, ки сервер дар он кор мекунад, " +
+      "ё серверро бо HTTPS танзим кунед.",
+    currentAddress: "Суроғаи ҳозира",
+    openOnServer: "Дар компютери сервер кушоед",
     manualEntry: "Вазнро дастӣ ворид кардан",
     manualReason: "Сабаби ворид кардани дастӣ (ҳатмӣ)",
     manualWarning: "Вазни дастӣ ба соҳиби корхона хабар дода мешавад",

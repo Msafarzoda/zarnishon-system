@@ -17,6 +17,7 @@ describe("parseScaleFrame — CAS / Toledo", () => {
     expect(parseScaleFrame("ST,GS,+003015.0kg\r\n", cas)).toEqual({
       weightG: 3_015_000,
       stable: true,
+      stabilityKnown: true,
       raw: "ST,GS,+003015.0kg",
     });
   });
@@ -84,7 +85,12 @@ describe("customProtocol", () => {
 });
 
 describe("isSettled", () => {
-  const r = (weightG: number, stable = false): ScaleReading => ({ weightG, stable, raw: "" });
+  /** An indicator that reports stability, like the Keli D2008. */
+  const r = (weightG: number, stable = false): ScaleReading =>
+    ({ weightG, stable, stabilityKnown: true, raw: "" });
+  /** An indicator with no stability flag at all. */
+  const mute = (weightG: number): ScaleReading =>
+    ({ weightG, stable: false, stabilityKnown: false, raw: "" });
 
   it("believes an indicator that reports stability", () => {
     expect(isSettled([r(3_015_000, true), r(3_015_000, true), r(3_015_000, true),
@@ -97,13 +103,45 @@ describe("isSettled", () => {
   });
 
   it("falls back to the number holding still, for indicators with no flag", () => {
-    expect(isSettled([r(3_015_000), r(3_015_000), r(3_014_990), r(3_015_010), r(3_015_000)]))
-      .toBe(true);
+    expect(isSettled([mute(3_015_000), mute(3_015_000), mute(3_014_990),
+                      mute(3_015_010), mute(3_015_000)])).toBe(true);
   });
 
   it("refuses a truck that is still settling on its springs", () => {
-    expect(isSettled([r(3_060_000), r(3_040_000), r(3_025_000), r(3_018_000), r(3_015_000)]))
-      .toBe(false);
+    expect(isSettled([mute(3_060_000), mute(3_040_000), mute(3_025_000),
+                      mute(3_018_000), mute(3_015_000)])).toBe(false);
+  });
+
+  /**
+   * The bug this guards: a truck oscillating slowly sits nearly still near the turning
+   * points of its swing. Several frames in a row then fall inside any numeric tolerance
+   * while the platform is plainly still moving — and the indicator is saying so. It gets
+   * believed, and the weight captured is wrong by whatever the swing happens to be.
+   */
+  it("never overrides an indicator that says the platform is moving", () => {
+    const barelyMoving = [
+      r(3_014_000, false), r(3_014_010, false), r(3_014_000, false),
+      r(3_013_990, false), r(3_014_000, false),
+    ];
+    expect(isSettled(barelyMoving)).toBe(false);
+  });
+
+  it("does not treat a silent indicator's readings as a stability claim", () => {
+    // All five are `stable: false`, but for a mute indicator that means "no opinion",
+    // not "moving" — so the numeric test is allowed to decide.
+    expect(isSettled([mute(635_000), mute(635_000), mute(635_000),
+                      mute(635_000), mute(635_000)])).toBe(true);
+  });
+
+  it("refuses a window that mixes an indicator's claim with silence", () => {
+    expect(isSettled([r(3_015_000, true), r(3_015_000, true), mute(3_015_000),
+                      r(3_015_000, true), r(3_015_000, true)])).toBe(false);
+  });
+
+  /** 20 kg of slack is 250 сомонӣ of cotton. The fallback is below one division. */
+  it("keeps the numeric fallback tight", () => {
+    expect(isSettled([mute(3_015_000), mute(3_015_000), mute(3_015_000),
+                      mute(3_015_000), mute(3_020_000)])).toBe(false);
   });
 
   it("refuses before it has seen enough of the stream", () => {
