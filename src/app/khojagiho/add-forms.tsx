@@ -10,24 +10,33 @@ type State = { error?: string; ok?: string };
 export function AddForms() {
   const [open, setOpen] = useState<"farm" | "vehicle" | "driver" | null>(null);
 
+  // Returns two flex children of the control row: the triggers, and — when one is open —
+  // a full-width panel that `flex-wrap` drops onto its own line beneath them.
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap">
-        <button className="btn-secondary" onClick={() => setOpen(open === "farm" ? null : "farm")}>
-          {tg.common.add}: {tg.ticket.consignor}
+    <>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-secondary"
+                onClick={() => setOpen(open === "farm" ? null : "farm")}>
+          + {tg.ticket.consignor}
         </button>
-        <button className="btn-secondary" onClick={() => setOpen(open === "vehicle" ? null : "vehicle")}>
-          {tg.common.add}: {tg.ticket.vehicle}
+        <button type="button" className="btn-secondary"
+                onClick={() => setOpen(open === "vehicle" ? null : "vehicle")}>
+          + {tg.ticket.vehicle}
         </button>
-        <button className="btn-secondary" onClick={() => setOpen(open === "driver" ? null : "driver")}>
-          {tg.common.add}: {tg.ticket.driver}
+        <button type="button" className="btn-secondary"
+                onClick={() => setOpen(open === "driver" ? null : "driver")}>
+          + {tg.ticket.driver}
         </button>
       </div>
 
-      {open === "farm" && <FarmForm />}
-      {open === "vehicle" && <VehicleForm />}
-      {open === "driver" && <DriverForm />}
-    </div>
+      {open && (
+        <div className="w-full basis-full">
+          {open === "farm" && <FarmForm />}
+          {open === "vehicle" && <VehicleForm />}
+          {open === "driver" && <DriverForm />}
+        </div>
+      )}
+    </>
   );
 }
 

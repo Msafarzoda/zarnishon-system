@@ -1,25 +1,32 @@
-import { asc, desc, eq, sql as raw } from "drizzle-orm";
+import { asc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
-import {
-  counterparties,
-  drivers,
-  ledgerAccounts,
-  ledgerEntries,
-  vehicles,
-  weighTickets,
-} from "@/db/schema/index";
+import { counterparties, drivers, vehicles } from "@/db/schema/index";
 import { requirePageRole } from "@/lib/auth/session";
-import { diramToSomoniString, gramsToKgString } from "@/domain/units";
+import { divRound } from "@/domain/units";
+import { priceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
-import { AddForms } from "./add-forms";
+import { FarmsClient } from "./farms-client";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Хоҷагиҳо — the customer list.
+ *
+ * Used to find one farm among many and to see, without opening anything, who is owed
+ * cotton money and who owes us an advance. Everything here is derived from the ledger and
+ * the tickets; nothing is a stored total.
+ *
+ * Tables are named explicitly inside the subqueries: interpolating a Drizzle column into
+ * a raw template renders it unqualified, which collides with the joined tables.
+ */
 export default async function FarmsPage() {
-  const user = await requirePageRole("merchandiser", "cashier", "owner", "accountant", "admin");
+  const user = await requirePageRole(
+    "merchandiser", "cashier", "owner", "accountant", "admin",
+  );
 
-  // Each farm with what it still owes us and what we still owe it, both derived.
+  const trend = await priceTrend();
+
   const farms = await db
     .select({
       id: counterparties.id,
@@ -27,19 +34,6 @@ export default async function FarmsPage() {
       tin: counterparties.tin,
       place: counterparties.defaultLocation,
       phone: counterparties.phone,
-      // Interpolating a Drizzle column into a raw template renders it UNQUALIFIED
-      // ("id"), which collides with ledger_accounts.id inside these correlated
-      // subqueries — Postgres rejects the whole query as ambiguous. The outer table is
-      // named explicitly instead.
-      advanceD: raw<string>`COALESCE((
-        SELECT SUM(e.amount_d) FROM ledger_entries e
-        JOIN ledger_accounts a ON a.id = e.account_id
-        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = counterparties.id
-      ), 0)`,
-      unpaidTickets: raw<string>`COALESCE((
-        SELECT COUNT(*) FROM weigh_tickets t
-        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
-      ), 0)`,
       deliveredG: raw<string>`COALESCE((
         SELECT SUM(t.net_g) FROM weigh_tickets t
         WHERE t.consignor_id = counterparties.id AND t.status <> 'VOID'
@@ -48,96 +42,64 @@ export default async function FarmsPage() {
         SELECT SUM(p.cash_payable_d) FROM payments p
         WHERE p.counterparty_id = counterparties.id AND p.reversed_at IS NULL
       ), 0)`,
+      unpaidTickets: raw<string>`COALESCE((
+        SELECT COUNT(*) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
+      ), 0)`,
+      // Weight the lab has cleared that has not been paid for — what we actually owe.
+      unpaidPayableG: raw<string>`COALESCE((
+        SELECT SUM(ROUND(t.net_g::numeric * (10000 - COALESCE(
+          (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+             FROM lab_analyses la
+            WHERE la.ticket_id = t.id AND la.stage = 'on_intake'
+              AND la.status = 'APPROVED' AND la.superseded_at IS NULL LIMIT 1),
+          (SELECT COALESCE(la.override_deduction_bp, la.computed_deduction_bp)
+             FROM lab_analyses la
+            WHERE la.batch_id = t.batch_id AND la.stage = 'on_intake'
+              AND la.status = 'APPROVED' AND la.superseded_at IS NULL LIMIT 1),
+          0)) / 10000))
+        FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
+      ), 0)`,
+      advanceD: raw<string>`COALESCE((
+        SELECT SUM(e.amount_d) FROM ledger_entries e
+        JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = counterparties.id
+      ), 0)`,
     })
     .from(counterparties)
     .where(eq(counterparties.isActive, true))
     .orderBy(asc(counterparties.name));
 
   const [vehicleList, driverList] = await Promise.all([
-    db.select({ id: vehicles.id, plate: vehicles.plate, model: vehicles.model })
-      .from(vehicles).where(eq(vehicles.isActive, true)).orderBy(asc(vehicles.plate)).limit(100),
-    db.select({ id: drivers.id, fullName: drivers.fullName })
-      .from(drivers).where(eq(drivers.isActive, true)).orderBy(asc(drivers.fullName)).limit(100),
+    db.select({ id: vehicles.id, plate: vehicles.plate, model: vehicles.model,
+                transportOrg: vehicles.transportOrg })
+      .from(vehicles).where(eq(vehicles.isActive, true)).orderBy(asc(vehicles.plate)).limit(200),
+    db.select({ id: drivers.id, fullName: drivers.fullName, phone: drivers.phone })
+      .from(drivers).where(eq(drivers.isActive, true)).orderBy(asc(drivers.fullName)).limit(200),
   ]);
+
+  const rows = farms.map((f) => {
+    const unpaidPayableG = Number(f.unpaidPayableG);
+    return {
+      id: f.id,
+      name: f.name,
+      tin: f.tin,
+      place: f.place,
+      phone: f.phone,
+      deliveredG: Number(f.deliveredG),
+      paidD: Number(f.paidD),
+      unpaidTickets: Number(f.unpaidTickets),
+      unpaidPayableG,
+      unpaidValueD:
+        trend.currentD !== null ? divRound(unpaidPayableG * trend.currentD, 1000) : null,
+      advanceD: Math.max(0, Number(f.advanceD)),
+    };
+  });
 
   return (
     <Shell user={user} title={tg.nav.farms}>
-      <div className="space-y-5">
-        <AddForms />
-
-        <section className="card overflow-x-auto p-4">
-          <table className="w-full text-sm">
-            <thead className="text-ink-faint">
-              <tr>
-                <th className="py-1 text-start font-medium">{tg.ticket.consignor}</th>
-                <th className="py-1 text-start font-medium">{tg.ticket.tin}</th>
-                <th className="py-1 text-start font-medium">{tg.ticket.loadingPlace}</th>
-                <th className="py-1 text-start font-medium">{tg.common.phone}</th>
-                <th className="py-1 text-end font-medium">{tg.dashboard.cottonReceived}</th>
-                <th className="py-1 text-end font-medium">{tg.account.paidTotal}</th>
-                <th className="py-1 text-end font-medium">{tg.dashboard.unpaidTickets}</th>
-                <th className="py-1 text-end font-medium">{tg.advance.outstanding}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-paper-line">
-              {farms.map((f) => {
-                const advance = Number(f.advanceD);
-                return (
-                  <tr key={f.id}>
-                    <td className="py-2 font-medium">
-                      <a href={`/khojagiho/${f.id}`} className="text-brand hover:underline">
-                        {f.name}
-                      </a>
-                    </td>
-                    <td className="py-2 tabular text-ink-soft">{f.tin ?? "—"}</td>
-                    <td className="py-2 text-ink-soft">{f.place ?? "—"}</td>
-                    <td className="py-2 tabular text-ink-soft">
-                      {f.phone ? <a href={`tel:${f.phone}`} className="hover:underline">{f.phone}</a> : "—"}
-                    </td>
-                    <td className="py-2 text-end tabular">
-                      {gramsToKgString(Number(f.deliveredG), 0)} {tg.common.kg}
-                    </td>
-                    <td className="py-2 text-end tabular">
-                      {Number(f.paidD) > 0 ? diramToSomoniString(Number(f.paidD)) : "—"}
-                    </td>
-                    <td className="py-2 text-end tabular">{Number(f.unpaidTickets) || "—"}</td>
-                    <td className={`py-2 text-end tabular ${advance > 0 ? "font-semibold text-warn" : "text-ink-faint"}`}>
-                      {advance > 0 ? diramToSomoniString(advance) : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-              {farms.length === 0 && (
-                <tr><td colSpan={8} className="py-8 text-center text-ink-faint">
-                  {tg.common.nothingFound}
-                </td></tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <section className="card p-4">
-            <h2 className="mb-2 text-sm font-semibold text-ink-soft">{tg.ticket.vehicle}</h2>
-            <ul className="divide-y divide-paper-line text-sm">
-              {vehicleList.map((v) => (
-                <li key={v.id} className="flex justify-between py-1.5">
-                  <span>{v.model ?? "—"}</span>
-                  <span className="tabular text-ink-soft">{v.plate}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-          <section className="card p-4">
-            <h2 className="mb-2 text-sm font-semibold text-ink-soft">{tg.ticket.driver}</h2>
-            <ul className="divide-y divide-paper-line text-sm">
-              {driverList.map((d) => (
-                <li key={d.id} className="py-1.5">{d.fullName}</li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      </div>
+      <FarmsClient farms={rows} vehicles={vehicleList} drivers={driverList} />
     </Shell>
   );
 }
