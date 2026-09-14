@@ -6,6 +6,7 @@
   html {
     /* Factory floor: operators read these screens standing up, often on old monitors. */
     font-size: 17px;
+    -webkit-text-size-adjust: 100%;
   }
   body {
     @apply bg-paper text-ink antialiased;
@@ -13,27 +14,49 @@
   /* Weights and amounts are read at a glance and compared down a column. */
   .tabular {
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+  /* Visible focus matters more here than usual — these screens are driven by keyboard
+     and by gloved fingers, and the operator must always know where they are. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-paper;
+  }
+  table {
+    @apply w-full border-collapse;
   }
 }
 
 @layer components {
   .card {
-    @apply rounded-lg border border-paper-line bg-paper-card shadow-sm;
+    @apply rounded-xl border border-paper-line bg-paper-card shadow-sm;
   }
   .label {
     @apply block text-sm font-medium text-ink-soft mb-1;
   }
   .input {
-    @apply w-full rounded-md border border-paper-line bg-white px-3 py-2.5 text-ink
-           outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+    @apply w-full rounded-lg border border-paper-line bg-white px-3 py-2.5 text-ink
+           outline-none transition-colors placeholder:text-ink-faint/70
+           focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+  /* The section heading pattern used across every screen. */
+  .page-title {
+    @apply text-xl font-semibold tracking-tight sm:text-2xl;
+  }
+  /* Active item in the top navigation. */
+  .nav-link {
+    @apply rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-white/15;
+  }
+  .nav-link-active {
+    @apply bg-white/20 font-medium;
   }
   /* Weighbridge and cash-desk number entry — big enough to read across the cabin. */
   .input-number {
     @apply input text-3xl font-semibold tabular tracking-tight;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5
-           font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+           font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+           active:translate-y-px;
   }
   .btn-primary {
     @apply btn bg-brand text-white hover:bg-brand-dark;
@@ -57,7 +80,7 @@
  * copy the driver keeps — with cut lines between them. One truck, one sheet.
  *
  * A4 is 297 mm. With a 6 mm margin top and bottom, 285 mm is printable, so each copy is
- * given 92 mm and the three fit with room to spare. Everything inside is sized in points so the
+ * given 93 mm and the three fit. Everything inside is sized in points so the
  * result does not depend on the browser's zoom.
  */
 @media print {
@@ -104,7 +127,7 @@
   }
 
   .print-copy {
-    height: 92mm !important;
+    height: 93mm !important;
     box-sizing: border-box;
     overflow: hidden;
     break-inside: avoid;
@@ -113,14 +136,17 @@
     border-radius: 0 !important;
     box-shadow: none !important;
     margin: 0 !important;
-    padding: 2mm 3mm !important;
+    padding: 1.5mm 3mm !important;
     /* Measured: at this size the tallest copy (the driver's, which carries the red
        notice) comes to ~88 mm, leaving ~5 mm of headroom in its 93 mm slot. */
-    font-size: 8.8pt !important;
-    line-height: 1.22 !important;
+    font-size: 8.6pt !important;
+    line-height: 1.2 !important;
   }
 
-  /* 3 x 92 mm = 276 mm, leaving 9 mm of slack inside the 285 mm printable area. */
+  /* 3 x 93 mm = 279 mm, inside the 285 mm printable area. Measured at these sizes:
+     the tallest copy (the driver's, which carries the red notice) is ~90 mm, so it has
+     about a line of slack — and PrintField truncates rather than wraps, which is what
+     keeps the height predictable. */
 
   /* Where to cut. The scissors mark sits on the line itself. */
   .print-copy + .print-copy {
@@ -128,20 +154,20 @@
   }
 
   .print-copy h2 {
-    font-size: 11.6pt !important;
+    font-size: 11.3pt !important;
   }
 
   .print-copy .print-net {
-    font-size: 12.7pt !important;
+    font-size: 12.4pt !important;
   }
 
   .print-copy table {
-    font-size: 8.3pt !important;
+    font-size: 8.1pt !important;
   }
 
   .print-copy th,
   .print-copy td {
-    padding: 0.5mm 1mm !important;
+    padding: 0.4mm 1mm !important;
   }
 
   /* Keep every rule and divider visible — printers drop backgrounds by default. */

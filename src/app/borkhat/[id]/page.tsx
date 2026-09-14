@@ -16,6 +16,17 @@ import { currentUser } from "@/lib/auth/session";
 import { gramsToKgString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { PrintButton } from "./print-button";
+import {
+  PrintCopy,
+  PrintField,
+  PrintFields,
+  PrintIdentity,
+  PrintPage,
+  PrintSheet,
+  PrintSignature,
+  PrintSignatures,
+  PrintWarning,
+} from "@/components/print";
 
 export const dynamic = "force-dynamic";
 
@@ -107,7 +118,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
   ] as const;
 
   return (
-    <div className="borkhat-page min-h-screen bg-paper py-6">
+    <PrintPage>
       <div className="no-print mx-auto mb-4 flex max-w-[210mm] items-center gap-3 px-4">
         <a href="/tarozu" className="btn-secondary">{tg.common.back}</a>
         <span className="font-mono text-brand">{t.serial}</span>
@@ -128,7 +139,7 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
         {tg.ticket.printHint}
       </p>
 
-      <div className="borkhat-sheet mx-auto max-w-[210mm] space-y-4 px-4">
+      <PrintSheet>
         {copies.map((copy, i) => (
           <TicketCopy
             key={copy.key}
@@ -141,8 +152,8 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
             printedAt={printedAt}
           />
         ))}
-      </div>
-    </div>
+      </PrintSheet>
+    </PrintPage>
   );
 }
 
@@ -189,75 +200,60 @@ function TicketCopy({
     d ? d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "—";
 
   return (
-    <article className="print-copy card relative bg-white p-4 text-[12px] leading-snug">
-      {/* Where to cut the sheet into its three copies. */}
-      {cutAbove && (
-        <span className="absolute -top-2 left-3 bg-paper px-1 text-[10px] text-ink-faint print:bg-white">
-          ✂ {tg.ticket.cutHere}
-        </span>
-      )}
+    <PrintCopy
+      formCode={tg.ticket.formCode}
+      title={tg.ticket.title}
+      serialLabel={tg.ticket.number}
+      serialValue={t.serialNumber}
+      copyLabel={label}
+      cutAbove={cutAbove}
+      right={
+        <PrintIdentity season={t.season} batchNumber={t.batchNumber} serial={t.serial} />
+      }
+    >
+      <PrintFields>
+        <PrintField label={tg.ticket.date} value={date} />
+        <PrintField label={tg.ticket.vehicle} value={[t.model, t.plate].filter(Boolean).join(" · ")} />
+        <PrintField label={tg.ticket.transportOrg} value={t.transportOrg} />
+        <PrintField label={tg.ticket.driver} value={t.driver} />
+        <PrintField label={tg.ticket.consignor} value={t.farm} />
+        <PrintField label={tg.ticket.tin} value={t.tin} />
+        <PrintField label={tg.ticket.loadingPlace} value={t.loadingPlace} />
+        <PrintField label={tg.ticket.brigade} value={t.brigade} />
+        <PrintField label={tg.ticket.consignee} value={CONSIGNEE} />
+        <PrintField label={tg.ticket.unloadingPlace} value={t.unloadingPlace} />
+        <PrintField label={tg.ticket.route} value={t.routeNo} />
+        <PrintField label={tg.ticket.garage} value={t.garageNo} />
+      </PrintFields>
 
-      <header className="mb-2 flex items-start justify-between gap-3 border-b border-paper-line pb-1.5">
-        <div>
-          <div className="text-ink-faint">{tg.ticket.formCode}</div>
-          <h2 className="font-bold uppercase tracking-wide">
-            {tg.ticket.title} {tg.ticket.number}
-            <span className="ms-2 font-mono text-base">{t.serialNumber}</span>
-          </h2>
-        </div>
-        <div className="text-end">
-          <div className="text-ink-faint">
-            {tg.app.season}-{t.season} · {tg.ticket.batch}{" "}
-            <strong className="text-ink">{t.batchNumber ?? "—"}</strong>
-          </div>
-          <div className="mt-0.5 font-semibold">{label}</div>
-          {/* The system's own serial, so a printed ticket can be matched against the
-              handwritten book while both are being kept in parallel. */}
-          <div className="font-mono text-[9px] text-ink-faint">{t.serial}</div>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-2 gap-x-5">
-        <Field label={tg.ticket.date} value={date} />
-        <Field label={tg.ticket.vehicle} value={[t.model, t.plate].filter(Boolean).join(" · ")} />
-        <Field label={tg.ticket.transportOrg} value={t.transportOrg} />
-        <Field label={tg.ticket.driver} value={t.driver} />
-        <Field label={tg.ticket.consignor} value={t.farm} />
-        <Field label={tg.ticket.tin} value={t.tin} />
-        <Field label={tg.ticket.loadingPlace} value={t.loadingPlace} />
-        <Field label={tg.ticket.brigade} value={t.brigade} />
-        <Field label={tg.ticket.consignee} value={CONSIGNEE} />
-        <Field label={tg.ticket.unloadingPlace} value={t.unloadingPlace} />
-        <Field label={tg.ticket.route} value={t.routeNo} />
-        <Field label={tg.ticket.garage} value={t.garageNo} />
-      </div>
-
-      <table className="mt-2 w-full border-collapse text-center">
+      <table className="mt-2 border-collapse text-center">
         <thead>
           <tr className="bg-paper text-[10px] text-ink-soft">
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.variety}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.grade}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.batch}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.cottonClass}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.gross}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.tare}</th>
-            <th className="border border-paper-line px-2 py-0.5 font-medium">{tg.ticket.net}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.variety}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.grade}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.batch}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.cottonClass}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.gross}</th>
+            <th className="border border-ink-faint px-2 py-0.5 font-medium">{tg.ticket.tare}</th>
+            <th className="border-2 border-ink px-2 py-0.5 font-semibold text-ink">{tg.ticket.net}</th>
           </tr>
         </thead>
         <tbody>
           <tr className="tabular">
-            <td className="border border-paper-line px-2 py-1">{t.variety ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-1">{t.grade ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-1">{t.batchNumber ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-1">{t.cottonClass ?? "—"}</td>
-            <td className="border border-paper-line px-2 py-1">{kg(t.grossG)}</td>
-            <td className="border border-paper-line px-2 py-1">{kg(t.tareG)}</td>
-            <td className="print-net border border-paper-line px-2 py-1 text-sm font-bold">
+            <td className="border border-ink-faint px-2 py-1">{t.variety ?? "—"}</td>
+            <td className="border border-ink-faint px-2 py-1">{t.grade ?? "—"}</td>
+            <td className="border border-ink-faint px-2 py-1">{t.batchNumber ?? "—"}</td>
+            <td className="border border-ink-faint px-2 py-1">{t.cottonClass ?? "—"}</td>
+            <td className="border border-ink-faint px-2 py-1">{kg(t.grossG)}</td>
+            <td className="border border-ink-faint px-2 py-1">{kg(t.tareG)}</td>
+            {/* Нетто is the number the whole document exists to record. */}
+            <td className="print-net border-2 border-ink px-2 py-1 text-sm font-bold">
               {kg(t.netG)}
             </td>
           </tr>
         </tbody>
       </table>
+
       <div className="flex justify-between text-[9px] text-ink-faint">
         <span>
           {tg.ticket.weighedAtLabel}: {tg.ticket.gross} {hhmm(grossAt)} · {tg.ticket.tare}{" "}
@@ -266,11 +262,13 @@ function TicketCopy({
         <span>{tg.ticket.weightSection}</span>
       </div>
 
-      <div className="mt-2 grid grid-cols-3 gap-4 text-[9px]">
-        <Signature label={tg.ticket.merchandiser} name={t.weigher} />
-        <Signature label={tg.ticket.deliveredBy} name={t.driver} />
-        <Signature label={tg.ticket.receivedBy} name={null} />
-      </div>
+      <PrintSignatures>
+        <PrintSignature label={tg.ticket.merchandiser} name={t.weigher} />
+        <PrintSignature label={tg.ticket.deliveredBy} name={t.driver} />
+        <PrintSignature label={tg.ticket.receivedBy} />
+      </PrintSignatures>
+
+      {stamped && <PrintWarning>{tg.ticket.copyNotice}</PrintWarning>}
 
       {/* When this sheet came off the printer — distinct from when the truck was weighed,
           so a reprint is identifiable on the paper itself, not only in the audit log. */}
@@ -281,34 +279,7 @@ function TicketCopy({
           hour: "2-digit", minute: "2-digit",
         })}
       </div>
-
-      {stamped && (
-        <p className="mt-1.5 border border-alarm/40 bg-red-50 px-2 py-1 text-[10px] font-medium text-alarm">
-          {tg.ticket.copyNotice}
-        </p>
-      )}
-
-
-    </article>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex gap-2 border-b border-dotted border-paper-line py-px">
-      <span className="shrink-0 text-ink-faint">{label}</span>
-      <span className="ms-auto text-end font-medium">{value || "—"}</span>
-    </div>
-  );
-}
-
-function Signature({ label, name }: { label: string; name: string | null }) {
-  return (
-    <div>
-      <div className="h-5 border-b border-ink-faint" />
-      <div className="mt-0.5 text-ink-faint">{label}</div>
-      <div className="font-medium">{name ?? " "}</div>
-    </div>
+    </PrintCopy>
   );
 }
 

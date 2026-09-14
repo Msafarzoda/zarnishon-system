@@ -14,10 +14,19 @@ import { bpToPercentString, diramToSomoniString, gramsToKgString } from "@/domai
 import { outstandingAdvanceD } from "@/server/services/balances";
 import { tg } from "@/lib/i18n/tg";
 import { PrintButton } from "./print-button";
+import {
+  PrintCopy,
+  PrintField,
+  PrintFields,
+  PrintIdentity,
+  PrintPage,
+  PrintSheet,
+  PrintSignature,
+  PrintSignatures,
+  PrintWarning,
+} from "@/components/print";
 
 export const dynamic = "force-dynamic";
-
-const FACTORY = 'ЧДММ «ЗАРНИШОН»';
 
 /**
  * Ҳисобномаи пардохт — the receipt for cash handed to a farmer.
@@ -79,7 +88,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   });
 
   return (
-    <div className="borkhat-page min-h-screen bg-paper py-6">
+    <PrintPage>
       <div className="no-print mx-auto mb-3 flex max-w-[210mm] items-center gap-3 px-4">
         <a href="/hazina" className="btn-secondary">{tg.common.back}</a>
         <span className="font-mono text-brand">{p.invoiceNo}</span>
@@ -94,39 +103,26 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         {tg.ticket.printHint}
       </p>
 
-      <div className="borkhat-sheet mx-auto max-w-[210mm] space-y-4 px-4">
+      <PrintSheet>
         {copies.map((label, i) => (
-          <article key={label} className="print-copy card relative bg-white p-4 text-[12px] leading-snug">
-            {i > 0 && (
-              <span className="absolute -top-2 left-3 bg-paper px-1 text-[10px] text-ink-faint print:bg-white">
-                ✂ {tg.ticket.cutHere}
-              </span>
-            )}
-
-            <header className="mb-2 flex items-start justify-between gap-3 border-b border-paper-line pb-1.5">
-              <div>
-                <div className="text-ink-faint">{FACTORY}</div>
-                <h2 className="font-bold uppercase tracking-wide">
-                  {tg.cash.receiptTitle}
-                  <span className="ms-2 font-mono text-base">{p.invoiceNo}</span>
-                </h2>
-              </div>
-              <div className="text-end">
-                <div className="text-ink-faint">
-                  {tg.app.season}-{p.season} · {tg.ticket.batch}{" "}
-                  <strong className="text-ink">{p.batchNumber ?? "—"}</strong>
-                </div>
-                <div className="mt-0.5 font-semibold">{label}</div>
-                <div className="font-mono text-[9px] text-ink-faint">{p.serial}</div>
-              </div>
-            </header>
-
-            <div className="grid grid-cols-2 gap-x-5">
-              <Field label={tg.ticket.date} value={when} />
-              <Field label={tg.ticket.number} value={p.serial} />
-              <Field label={tg.ticket.consignor} value={p.farm} />
-              <Field label={tg.ticket.tin} value={p.tin} />
-            </div>
+          <PrintCopy
+            key={label}
+            formCode={tg.cash.invoice}
+            title={tg.cash.receiptTitle}
+            serialLabel={tg.cash.receiptNo}
+            serialValue={p.invoiceNo}
+            copyLabel={label}
+            cutAbove={i > 0}
+            right={
+              <PrintIdentity season={p.season} batchNumber={p.batchNumber} serial={p.serial} />
+            }
+          >
+            <PrintFields>
+              <PrintField label={tg.ticket.date} value={when} />
+              <PrintField label={tg.ticket.number} value={p.serial} />
+              <PrintField label={tg.ticket.consignor} value={p.farm} />
+              <PrintField label={tg.ticket.tin} value={p.tin} />
+            </PrintFields>
 
             <table className="mt-2 w-full border-collapse">
               <tbody className="tabular">
@@ -154,29 +150,19 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               </tbody>
             </table>
 
-            {p.reversedAt && (
-              <p className="mt-1 border border-alarm/40 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-alarm">
-                {tg.common.voidAction}
-              </p>
-            )}
+            {p.reversedAt && <PrintWarning>{tg.common.voidAction}</PrintWarning>}
 
-            <div className="mt-3 grid grid-cols-2 gap-6 text-[9px]">
-              <Signature label={tg.cash.paidBy} name={p.cashier} />
-              <Signature label={`${tg.cash.paidTo} — ${tg.cash.receivedSignature}`} name={p.farm} />
-            </div>
-          </article>
+            <PrintSignatures>
+              <PrintSignature label={tg.cash.paidBy} name={p.cashier} />
+              <PrintSignature
+                label={`${tg.cash.paidTo} — ${tg.cash.receivedSignature}`}
+                name={p.farm}
+              />
+            </PrintSignatures>
+          </PrintCopy>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex gap-2 border-b border-dotted border-paper-line py-px">
-      <span className="shrink-0 text-ink-faint">{label}</span>
-      <span className="ms-auto text-end font-medium">{value || "—"}</span>
-    </div>
+      </PrintSheet>
+    </PrintPage>
   );
 }
 
@@ -185,11 +171,11 @@ function Row({
 }: { label: string; value: string; strong?: boolean; big?: boolean }) {
   return (
     <tr className={big ? "bg-brand-light" : ""}>
-      <td className="border border-paper-line px-2 py-0.5 text-ink-soft">{label}</td>
+      <td className="border border-ink-faint px-2 py-0.5 text-ink-soft">{label}</td>
       <td
-        className={`border border-paper-line px-2 py-0.5 text-end ${
-          big ? "print-net text-sm font-bold" : strong ? "font-semibold" : ""
-        }`}
+        className={`px-2 py-0.5 text-end ${
+          big ? "print-net border-2 border-ink text-sm font-bold" : "border border-ink-faint"
+        } ${strong && !big ? "font-semibold" : ""}`}
       >
         {value}
       </td>

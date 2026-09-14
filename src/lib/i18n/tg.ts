@@ -48,6 +48,7 @@ export const tg = {
     cashdesk: "Хазина",
     batches: "Партияҳо",
     farms: "Хоҷагиҳо",
+    account: "Ҳисоби хоҷагӣ",
     prices: "Нархҳо",
     dashboard: "Ҳисобот",
     users: "Корбарон",
@@ -231,6 +232,25 @@ export const tg = {
     outstanding: "Қарзи боқимонда",
     issuedAt: "Санаи додан",
     history: "Таърихи қарзҳо",
+    repaid: "Баргардонида шуд",
+  },
+
+  account: {
+    delivered: "Ҳамагӣ супурдааст",
+    payableWeight: "Вазни пардохтшаванда",
+    paidTotal: "Пардохт шудааст",
+    owedWeight: "Пардохт нашуда",
+    owedValue: "Аз рӯи нархи имрӯза",
+    advanceOutstanding: "Қарзи боқимонда",
+    ticketsTitle: "Борхатҳо",
+    paymentsTitle: "Пардохтҳо",
+    advancesTitle: "Қарзҳо",
+    awaitingScale: "Дар тарозу",
+    awaitingLab: "Интизори лаборатория",
+    readyToPay: "Омодаи пардохт",
+    paid: "Пардохт шуд",
+    noTickets: "Ҳанӯз борхат нест",
+    valuedAtToday: "Ӯҳдадорӣ аз рӯи нархи имрӯза ҳисоб мешавад — нархи рӯзи пардохт татбиқ мешавад",
   },
 
   price: {

@@ -44,6 +44,10 @@ export default async function FarmsPage() {
         SELECT SUM(t.net_g) FROM weigh_tickets t
         WHERE t.consignor_id = counterparties.id AND t.status <> 'VOID'
       ), 0)`,
+      paidD: raw<string>`COALESCE((
+        SELECT SUM(p.cash_payable_d) FROM payments p
+        WHERE p.counterparty_id = counterparties.id AND p.reversed_at IS NULL
+      ), 0)`,
     })
     .from(counterparties)
     .where(eq(counterparties.isActive, true))
@@ -70,6 +74,7 @@ export default async function FarmsPage() {
                 <th className="py-1 text-start font-medium">{tg.ticket.loadingPlace}</th>
                 <th className="py-1 text-start font-medium">{tg.common.phone}</th>
                 <th className="py-1 text-end font-medium">{tg.dashboard.cottonReceived}</th>
+                <th className="py-1 text-end font-medium">{tg.account.paidTotal}</th>
                 <th className="py-1 text-end font-medium">{tg.dashboard.unpaidTickets}</th>
                 <th className="py-1 text-end font-medium">{tg.advance.outstanding}</th>
               </tr>
@@ -79,7 +84,11 @@ export default async function FarmsPage() {
                 const advance = Number(f.advanceD);
                 return (
                   <tr key={f.id}>
-                    <td className="py-2 font-medium">{f.name}</td>
+                    <td className="py-2 font-medium">
+                      <a href={`/khojagiho/${f.id}`} className="text-brand hover:underline">
+                        {f.name}
+                      </a>
+                    </td>
                     <td className="py-2 tabular text-ink-soft">{f.tin ?? "—"}</td>
                     <td className="py-2 text-ink-soft">{f.place ?? "—"}</td>
                     <td className="py-2 tabular text-ink-soft">
@@ -87,6 +96,9 @@ export default async function FarmsPage() {
                     </td>
                     <td className="py-2 text-end tabular">
                       {gramsToKgString(Number(f.deliveredG), 0)} {tg.common.kg}
+                    </td>
+                    <td className="py-2 text-end tabular">
+                      {Number(f.paidD) > 0 ? diramToSomoniString(Number(f.paidD)) : "—"}
                     </td>
                     <td className="py-2 text-end tabular">{Number(f.unpaidTickets) || "—"}</td>
                     <td className={`py-2 text-end tabular ${advance > 0 ? "font-semibold text-warn" : "text-ink-faint"}`}>
@@ -96,7 +108,7 @@ export default async function FarmsPage() {
                 );
               })}
               {farms.length === 0 && (
-                <tr><td colSpan={7} className="py-8 text-center text-ink-faint">
+                <tr><td colSpan={8} className="py-8 text-center text-ink-faint">
                   {tg.common.nothingFound}
                 </td></tr>
               )}

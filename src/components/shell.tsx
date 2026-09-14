@@ -3,6 +3,7 @@ import { tg } from "@/lib/i18n/tg";
 import type { CurrentUser, Role } from "@/lib/auth/session";
 import { SignOutButton } from "./sign-out-button";
 import { ConnectionBadge } from "./connection-badge";
+import { NavLink } from "./nav-link";
 import { ActorTag } from "./actor-tag";
 
 /** Which sections each role may open. Mirrors docs/domain.md §6. */
@@ -53,21 +54,15 @@ export function Shell({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="no-print bg-brand text-white">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4 flex-wrap">
+      <header className="no-print sticky top-0 z-10 bg-brand text-white shadow-sm">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2.5">
           <Link href="/" className="font-bold tracking-tight">
             {tg.app.name}
           </Link>
 
           <nav className="flex items-center gap-1 text-sm">
             {nav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded px-3 py-1.5 hover:bg-white/15"
-              >
-                {item.label}
-              </Link>
+              <NavLink key={item.href} href={item.href} label={item.label} />
             ))}
           </nav>
 
@@ -85,8 +80,8 @@ export function Shell({
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
-        <div className="no-print mb-5 flex items-center justify-between gap-4 flex-wrap">
-          <h1 className="text-xl font-semibold">{title}</h1>
+        <div className="no-print mb-5 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="page-title">{title}</h1>
           {actions}
         </div>
         {children}
