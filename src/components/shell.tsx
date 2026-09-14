@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { tg } from "@/lib/i18n/tg";
-import type { CurrentUser, Role } from "@/lib/auth/session";
+import { needsStation, type CurrentUser, type Role } from "@/lib/auth/session";
 import { SignOutButton } from "./sign-out-button";
 import { ConnectionBadge } from "./connection-badge";
 import { NavLink } from "./nav-link";
@@ -84,6 +84,16 @@ export function Shell({
           <h1 className="page-title">{title}</h1>
           {actions}
         </div>
+
+        {/* A session started before the station became compulsory, or by someone who
+            skipped the field. Everything they do will be refused, so say so once, here,
+            rather than as a failure on the first truck. */}
+        {needsStation(user.role) && !user.stationId && (
+          <div className="no-print mb-5 card border-alarm bg-red-50 px-4 py-3">
+            <p className="font-semibold text-alarm">{tg.auth.stationMissing}</p>
+            <p className="mt-0.5 text-sm text-alarm/90">{tg.auth.stationMissingHint}</p>
+          </div>
+        )}
         {children}
       </main>
     </div>

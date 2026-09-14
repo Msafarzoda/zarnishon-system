@@ -169,7 +169,10 @@ function ArrivalForm({
   // Set only when the indicator cannot be used and a supervisor overrides it by hand.
   const [manual, setManual] = useState<{ weightG: number; reason: string } | null>(null);
 
-  const fromScale = scale.settled ? scale.reading : null;
+  // The latched reading, not the live one: a real indicator's stable flag flickers, and
+  // reading it live meant the button could disable between the operator deciding and
+  // pressing.
+  const fromScale = scale.held;
   const weightG = manual?.weightG ?? fromScale?.weightG ?? null;
 
   const farm = farmList.find((f) => f.id === consignorId);
@@ -194,6 +197,10 @@ function ArrivalForm({
     try {
       // Open the ticket, then record the loaded weighing against it. Both carry their own
       // idempotency key, so a connection that dies between them cannot lose or duplicate one.
+      // Opening the Борхат and taking брутто are one action, sent as one call. As two,
+      // a failure in between left a ticket with no weight, invisible in both tabs.
+      // The raw indicator frame travels with it, so what the scale actually said is on
+      // the record and not merely what the screen showed.
       const created = await submit<{ ticketId: string; serial: string }>("/api/tickets", {
         season,
         consignorId,
@@ -202,6 +209,14 @@ function ArrivalForm({
         batchId: batchId || undefined,
         varietyId: varietyId || undefined,
         loadingPlace: farm?.place ?? undefined,
+        gross: {
+          clientUuid: newClientUuid(),
+          weightG,
+          capturedAt: new Date().toISOString(),
+          source: manual || scale.simulated ? "manual" : "indicator",
+          indicatorRaw: manual || scale.simulated ? undefined : (fromScale?.raw ?? undefined),
+          reason: manual?.reason ?? (scale.simulated ? tg.scale.simulationReason : undefined),
+        },
       });
 
       if (created.kind === "rejected") {
@@ -217,23 +232,6 @@ function ArrivalForm({
         return;
       }
 
-      // The raw indicator frame travels with the weighing, so what the scale actually
-      // said is on the record and not merely what the screen showed.
-      const weighed = await submit("/api/weighings", {
-        ticketId: created.result.ticketId,
-        kind: "GROSS",
-        weightG,
-        capturedAt: new Date().toISOString(),
-        source: manual || scale.simulated ? "manual" : "indicator",
-        indicatorRaw: manual || scale.simulated ? undefined : (fromScale?.raw ?? undefined),
-        reason: manual?.reason ?? (scale.simulated ? tg.scale.simulationReason : undefined),
-      });
-
-      if (weighed.kind === "rejected") {
-        onNotice({ tone: "bad", text: weighed.message });
-        return;
-      }
-
       onNotice({
         tone: "ok",
         text: `${created.result.serial} — ${tg.ticket.gross} ` +
@@ -242,6 +240,7 @@ function ArrivalForm({
       setManual(null);
       setDriverId("");
       setVehicleId("");
+      scale.release();
       onDone();
     } finally {
       setBusy(false);
@@ -568,7 +567,7 @@ function TareCard({
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState<{ weightG: number; reason: string } | null>(null);
 
-  const fromScale = scale.settled ? scale.reading : null;
+  const fromScale = scale.held;
   const tareG = manual?.weightG ?? fromScale?.weightG ?? null;
 
   // Show the нетто the moment the platform settles, before anything is committed.
@@ -611,6 +610,7 @@ function TareCard({
         tone: "ok",
         text: `${ticket.serial} — ${tg.ticket.net} ${gramsToKgString(preview.netG, 1)} ${tg.common.kg}`,
       });
+      scale.release();
       onDone();
     } finally {
       setBusy(false);

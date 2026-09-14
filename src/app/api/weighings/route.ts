@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { handler } from "@/server/api";
+import { DomainError } from "@/domain/units";
 import { captureWeight } from "@/server/services/tickets";
 
 const schema = z.object({
@@ -24,7 +25,10 @@ export const POST = handler({
   schema,
   run: async (input, user) => {
     if (!user.stationId) {
-      throw new Error("Ҷойгоҳ интихоб нашудааст. / No station selected for this session.");
+      throw new DomainError(
+        "Ҷойгоҳ интихоб нашудааст. Бароед ва ҳангоми даромадан ҷойгоҳро интихоб кунед. / " +
+          "No station chosen for this session — sign out and pick one.",
+      );
     }
     return await captureWeight({
       ...input,

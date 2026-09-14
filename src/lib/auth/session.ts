@@ -41,6 +41,11 @@ export async function signIn(
   if (!user) return null;
   if (!(await verifyPassword(password, user.passwordHash))) return null;
 
+  // Refuse the sign-in rather than let the shift start in a state that cannot work.
+  if (needsStation(user.role as Role) && !stationId) {
+    throw new AuthError("STATION_REQUIRED");
+  }
+
   const token = newSessionToken();
   await db.insert(sessions).values({
     id: token,
@@ -118,8 +123,21 @@ export async function requireRole(...allowed: Role[]): Promise<CurrentUser> {
   return user;
 }
 
+/**
+ * Roles that work at a physical place, and whose every record is stamped with it.
+ *
+ * Signing in without choosing one leaves a weigher who cannot weigh: the station is
+ * required on a Борхат, so the first truck of the shift fails — and until this was
+ * enforced it failed as an HTTP 500 that the station reported as "offline".
+ */
+export const STATION_ROLES: readonly Role[] = ["weigher", "lab", "cashier", "guard"];
+
+export function needsStation(role: Role): boolean {
+  return STATION_ROLES.includes(role);
+}
+
 export class AuthError extends Error {
-  constructor(public code: "NOT_SIGNED_IN" | "FORBIDDEN") {
+  constructor(public code: "NOT_SIGNED_IN" | "FORBIDDEN" | "STATION_REQUIRED") {
     super(code);
     this.name = "AuthError";
   }

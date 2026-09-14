@@ -48,8 +48,10 @@ export function SignInForm({ stations }: { stations: Station[] }) {
         <div>
           <label className="label" htmlFor="stationId">
             {tg.auth.station}
+            <span className="ms-1 text-alarm">*</span>
           </label>
-          {/* Recorded on everything this shift writes, so an entry can be traced to a desk. */}
+          {/* Recorded on everything this shift writes, so an entry can be traced to a desk.
+              Required for anyone working at one: a weigher without a station cannot weigh. */}
           <select id="stationId" name="stationId" className="input" defaultValue="">
             <option value="">—</option>
             {stations.map((s) => (

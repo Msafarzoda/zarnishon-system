@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { handler } from "@/server/api";
+import { DomainError } from "@/domain/units";
 import { createTicket } from "@/server/services/tickets";
 
 const schema = z.object({
@@ -17,6 +18,18 @@ const schema = z.object({
   unloadingPlace: z.string().max(120).optional(),
   routeNo: z.string().max(40).optional(),
   originatedOffline: z.boolean().optional(),
+  /** The loaded weighing, recorded with the ticket rather than in a second call. */
+  gross: z
+    .object({
+      clientUuid: z.string().uuid(),
+      weightG: z.number().int().positive().max(2 ** 31 - 1),
+      source: z.enum(["manual", "indicator"]).optional(),
+      indicatorRaw: z.string().max(256).optional(),
+      reason: z.string().max(500).optional(),
+      capturedAt: z.string().datetime().optional(),
+      deviceFingerprint: z.string().max(128).optional(),
+    })
+    .optional(),
 });
 
 export const POST = handler({
@@ -25,9 +38,27 @@ export const POST = handler({
   schema,
   run: async (input, user) => {
     if (!user.stationId) {
-      throw new Error("Ҷойгоҳ интихоб нашудааст. / No station selected for this session.");
+      throw new DomainError(
+        "Ҷойгоҳ интихоб нашудааст. Бароед ва ҳангоми даромадан ҷойгоҳро интихоб кунед. / " +
+          "No station chosen for this session — sign out and pick one.",
+      );
     }
-    const ticket = await createTicket({ ...input, stationId: user.stationId, createdBy: user.id });
-    return { ticketId: ticket.id, serial: ticket.serial, status: ticket.status };
+    const ticket = await createTicket({
+      ...input,
+      gross: input.gross
+        ? {
+            ...input.gross,
+            capturedAt: input.gross.capturedAt ? new Date(input.gross.capturedAt) : undefined,
+          }
+        : undefined,
+      stationId: user.stationId,
+      createdBy: user.id,
+    });
+    return {
+      ticketId: ticket.id,
+      serial: ticket.serial,
+      status: ticket.status,
+      grossG: ticket.grossG,
+    };
   },
 });

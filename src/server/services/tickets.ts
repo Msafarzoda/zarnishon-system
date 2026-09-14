@@ -81,6 +81,22 @@ export interface CreateTicketInput {
   unloadingPlace?: string;
   routeNo?: string;
   originatedOffline?: boolean;
+  /**
+   * The loaded weighing, recorded in the same transaction.
+   *
+   * Opening the ticket and taking брутто are one action at the weighbridge. Doing them
+   * as two calls meant a failure between them left a DRAFT ticket with no weight —
+   * invisible in both tabs, unfinishable, and holding a serial number.
+   */
+  gross?: {
+    weightG: number;
+    source?: "manual" | "indicator";
+    indicatorRaw?: string;
+    reason?: string;
+    capturedAt?: Date;
+    clientUuid: string;
+    deviceFingerprint?: string;
+  };
 }
 
 /** Opens a Борхат for a truck that has arrived. No weight yet. */
@@ -133,7 +149,51 @@ export async function createTicket(input: CreateTicketInput) {
       occurredAt: new Date(),
     });
 
-    return ticket;
+    if (!input.gross) return ticket;
+
+    const gross = input.gross;
+    const source = gross.source ?? "manual";
+    assertWeightProvenance(source, gross.reason, gross.indicatorRaw);
+
+    const capturedAt = gross.capturedAt ?? new Date();
+    await tx.insert(weighEvents).values({
+      clientUuid: gross.clientUuid,
+      ticketId: ticket.id,
+      kind: "GROSS",
+      weightG: gross.weightG,
+      source,
+      indicatorRaw: gross.indicatorRaw ?? null,
+      capturedAt,
+      operatorId: input.createdBy,
+      stationId: input.stationId,
+      deviceFingerprint: gross.deviceFingerprint ?? null,
+      originatedOffline: input.originatedOffline ? 1 : 0,
+      reason: gross.reason?.trim() ?? null,
+    });
+
+    const [opened] = await tx
+      .update(weighTickets)
+      .set({
+        grossG: gross.weightG,
+        status: transition("DRAFT", "CAPTURE_GROSS"),
+        gate: "WEIGHED_GROSS",
+      })
+      .where(eq(weighTickets.id, ticket.id))
+      .returning();
+
+    await tx.insert(auditLog).values({
+      action: "ticket.weight.capture",
+      entityTable: "weigh_events",
+      entityId: ticket.id,
+      payload: { serial, kind: "GROSS", weightG: gross.weightG, source },
+      actorId: input.createdBy,
+      actorRole: "weigher",
+      stationId: input.stationId,
+      originatedOffline: input.originatedOffline ? 1 : 0,
+      occurredAt: capturedAt,
+    });
+
+    return opened ?? ticket;
   });
 }
 
@@ -173,21 +233,8 @@ export async function captureWeight(input: CaptureWeightInput) {
     );
   }
 
-  // The indicator is wired to the station precisely so that nobody types a weight. Typing
-  // one anyway stays possible — an indicator fails and trucks keep arriving — but it is
-  // never silent: it costs a written reason and the owner sees it.
   const source = input.source ?? "manual";
-  if (source === "manual" && !input.reason?.trim()) {
-    throw new DomainError(
-      "Вазни дастӣ бе сабаб қабул намешавад. / A hand-entered weight requires a reason — " +
-        "the weight should come from the indicator.",
-    );
-  }
-  if (source === "indicator" && !input.indicatorRaw?.trim()) {
-    throw new DomainError(
-      "Кадри тарозу нест. / A weight from the indicator must carry the frame it came from.",
-    );
-  }
+  assertWeightProvenance(source, input.reason, input.indicatorRaw);
 
   return await db.transaction(async (tx) => {
     const [ticket] = await tx
@@ -289,6 +336,32 @@ export async function captureWeight(input: CaptureWeightInput) {
 
     return { eventId: event.id, grossG, tareG, netG, status, replayed: false as const };
   });
+}
+
+/**
+ * Where a weight came from must be provable.
+ *
+ * The indicator is wired to the station precisely so that nobody types a weight. Typing
+ * one anyway stays possible — indicators fail and trucks keep arriving — but it is never
+ * silent: it costs a written reason and the owner sees it. A weight claiming to come from
+ * the indicator must carry the frame it came from.
+ */
+function assertWeightProvenance(
+  source: "manual" | "indicator",
+  reason: string | undefined,
+  indicatorRaw: string | undefined,
+): void {
+  if (source === "manual" && !reason?.trim()) {
+    throw new DomainError(
+      "Вазни дастӣ бе сабаб қабул намешавад. / A hand-entered weight requires a reason — " +
+        "the weight should come from the indicator.",
+    );
+  }
+  if (source === "indicator" && !indicatorRaw?.trim()) {
+    throw new DomainError(
+      "Кадри тарозу нест. / A weight from the indicator must carry the frame it came from.",
+    );
+  }
 }
 
 /** Newest weighing of one kind that nothing later supersedes. */

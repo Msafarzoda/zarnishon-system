@@ -56,6 +56,18 @@ export interface ScaleState {
   reading: ScaleReading | null;
   /** True once the platform has held still long enough to capture. */
   settled: boolean;
+  /**
+   * The settled reading, held until the load actually changes.
+   *
+   * A real indicator's stable flag flickers: it settles, a gust or a shifting load knocks
+   * it out for one frame, it settles again. Reading `settled` live meant the capture
+   * button enabled and disabled under the operator's finger, and a press could land in a
+   * gap and do nothing at all — which looks exactly like a broken screen.
+   *
+   * So the first settled reading is latched and kept. It is released only when the weight
+   * moves far enough to be a different load, or after a capture.
+   */
+  held: ScaleReading | null;
   /** What the stream was identified as, shown during setup. */
   detected: DetectedProtocol | null;
   /** Last few raw frames, so a human can check the port against the indicator display. */
@@ -65,6 +77,8 @@ export interface ScaleState {
 
 const BAUD_RATE = 9600; // Keli D2008, continuous mode, 8N1
 const HISTORY = 8;
+/** Beyond this much movement the platform is carrying something else, not the same truck. */
+const NEW_LOAD_G = 50_000;
 
 export function useScale() {
   const [state, setState] = useState<ScaleState>({
@@ -74,6 +88,7 @@ export function useScale() {
     simulated: false,
     reading: null,
     settled: false,
+    held: null,
     detected: null,
     frames: [],
     error: null,
@@ -121,14 +136,29 @@ export function useScale() {
 
     recent.current = [...recent.current, reading].slice(-HISTORY);
     const settled = isSettled(recent.current);
-    setState((s) => ({
-      ...s,
-      status: "streaming",
-      reading,
-      settled,
-      frames: [...s.frames, reading.raw].slice(-HISTORY),
-      error: null,
-    }));
+
+    setState((s) => {
+      // Keep the settled reading unless this one is a different load altogether.
+      const movedAway =
+        s.held !== null && Math.abs(reading.weightG - s.held.weightG) > NEW_LOAD_G;
+      const held = settled ? reading : movedAway ? null : s.held;
+
+      return {
+        ...s,
+        status: "streaming",
+        reading,
+        settled,
+        held,
+        frames: [...s.frames, reading.raw].slice(-HISTORY),
+        error: null,
+      };
+    });
+  }, []);
+
+  /** Forget the held weight after it has been captured, ready for the next truck. */
+  const release = useCallback(() => {
+    recent.current = [];
+    setState((s) => ({ ...s, held: null, settled: false }));
   }, []);
 
   /**
@@ -143,7 +173,7 @@ export function useScale() {
       recent.current = [];
       setState((s) => ({
         ...s, simulated: true, status: "listening", reading: null, settled: false,
-        frames: [], error: null,
+        held: null, frames: [], error: null,
       }));
       stopSimulator.current = runSimulator(targetKg, ingest);
     },
@@ -236,7 +266,7 @@ export function useScale() {
     setState((s) => ({
       ...s,
       status: "disconnected", simulated: false, reading: null, settled: false,
-      detected: null, frames: [], error: null,
+      held: null, detected: null, frames: [], error: null,
     }));
   }, []);
 
@@ -257,5 +287,5 @@ export function useScale() {
     };
   }, [open]);
 
-  return { ...state, connect, disconnect, simulate };
+  return { ...state, connect, disconnect, simulate, release };
 }

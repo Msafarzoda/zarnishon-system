@@ -28,6 +28,9 @@ export const tg = {
     station: "Ҷойгоҳ",
     wrongCredentials: "Номи корбар ё рамз нодуруст аст",
     noAccess: "Шумо ба ин бахш иҷозат надоред",
+    stationRequired: "Ҷойгоҳро интихоб кунед — бе он кор кардан мумкин нест",
+    stationMissing: "Ҷойгоҳ интихоб нашудааст",
+    stationMissingHint: "Бароед ва ҳангоми даромадан ҷойгоҳи худро интихоб кунед",
   },
 
   roles: {
