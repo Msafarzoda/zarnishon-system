@@ -30,26 +30,46 @@ export interface Finding {
   reference?: string;
 }
 
-/** Every posted transaction's entries must sum to zero. */
+/**
+ * Every posted transaction's entries must sum to zero — and there must be entries.
+ *
+ * Summing to zero is not enough on its own: a transaction whose entries have been removed
+ * sums to zero too, because an empty sum is zero. That is money that moved and then lost
+ * its record, which is exactly the kind of hole this check exists to find, and it passed
+ * silently until a mis-ordered delete produced one.
+ */
 export async function verifyLedgerBalanced(): Promise<Finding[]> {
   const rows = await db
     .select({
       txId: ledgerTx.id,
       memo: ledgerTx.memo,
-      total: raw<string>`SUM(${ledgerEntries.amountD})`,
+      total: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)`,
+      entries: raw<string>`COUNT(${ledgerEntries.id})`,
     })
     .from(ledgerTx)
     .leftJoin(ledgerEntries, eq(ledgerEntries.txId, ledgerTx.id))
     .groupBy(ledgerTx.id, ledgerTx.memo)
-    .having(raw`COALESCE(SUM(${ledgerEntries.amountD}), 0) <> 0`);
+    .having(
+      raw`COALESCE(SUM(${ledgerEntries.amountD}), 0) <> 0 OR COUNT(${ledgerEntries.id}) < 2`,
+    );
 
-  return rows.map((r) => ({
-    check: "ledger.balanced",
-    titleTg: "Дафтари муҳосибӣ мувозина нест",
-    severity: "alarm" as const,
-    detail: `Transaction sums to ${r.total} diram instead of 0.`,
-    reference: r.memo ?? r.txId,
-  }));
+  return rows.map((r) => {
+    const entries = Number(r.entries);
+    return {
+      check: entries < 2 ? "ledger.incomplete" : "ledger.balanced",
+      titleTg:
+        entries < 2
+          ? "Амалиёти муҳосибӣ нопурра аст"
+          : "Дафтари муҳосибӣ мувозина нест",
+      severity: "alarm" as const,
+      detail:
+        entries < 2
+          ? `Transaction has ${entries} entr${entries === 1 ? "y" : "ies"}; every movement ` +
+            `needs at least two sides.`
+          : `Transaction sums to ${r.total} diram instead of 0.`,
+      reference: r.memo ?? r.txId,
+    };
+  });
 }
 
 /**
