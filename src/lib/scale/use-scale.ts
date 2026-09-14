@@ -1,0 +1,235 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  detectProtocol,
+  isSettled,
+  readFrame,
+  type DetectedProtocol,
+  type ScaleReading,
+} from "@/domain/scale";
+import { Framer } from "./framer";
+import { runSimulator } from "./simulator";
+
+/**
+ * Live weight from the weighbridge indicator, read straight off the serial port by the
+ * browser (Web Serial).
+ *
+ * The point is that **the operator never types a weight**. The number that reaches the
+ * Борхат comes from the indicator, is marked `source: "indicator"`, and carries the raw
+ * frame it came from. A serial-to-keyboard wedge would look similar and be worthless —
+ * it types into whatever field has focus, so the operator can still type something else.
+ *
+ * Web Serial needs a secure context: https, or http://localhost. On the factory LAN that
+ * means the server must serve https, which it should anyway.
+ */
+
+export type ScaleStatus =
+  | "unsupported"
+  | "disconnected"
+  | "connecting"
+  | "listening"
+  | "streaming"
+  | "error";
+
+export interface ScaleState {
+  status: ScaleStatus;
+  /**
+   * True while the readings are coming from the simulator rather than a real indicator.
+   * A weighing taken in this state is never stored as `source: "indicator"` — forging
+   * scale data would defeat the entire point of wiring the scale in.
+   */
+  simulated: boolean;
+  /** Most recent reading, whether settled or not. */
+  reading: ScaleReading | null;
+  /** True once the platform has held still long enough to capture. */
+  settled: boolean;
+  /** What the stream was identified as, shown during setup. */
+  detected: DetectedProtocol | null;
+  /** Last few raw frames, so a human can check the port against the indicator display. */
+  frames: string[];
+  error: string | null;
+}
+
+const BAUD_RATE = 9600; // Keli D2008, continuous mode, 8N1
+const HISTORY = 8;
+
+export function useScale() {
+  const [state, setState] = useState<ScaleState>({
+    status: "disconnected",
+    simulated: false,
+    reading: null,
+    settled: false,
+    detected: null,
+    frames: [],
+    error: null,
+  });
+
+  const portRef = useRef<SerialPort | null>(null);
+  const stopSimulator = useRef<(() => void) | null>(null);
+  const stopRef = useRef(false);
+  const recent = useRef<ScaleReading[]>([]);
+  const sample = useRef<string[]>([]);
+  const detectedRef = useRef<DetectedProtocol | null>(null);
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && !navigator.serial) {
+      setState((s) => ({ ...s, status: "unsupported" }));
+    }
+  }, []);
+
+  /** Everything a frame does to the screen, wherever the frame came from. */
+  const ingest = useCallback((frame: string) => {
+    if (!detectedRef.current) {
+      sample.current = [...sample.current, frame].slice(-12);
+      const detected = detectProtocol(sample.current);
+      if (!detected) {
+        setState((s) => ({ ...s, status: "listening", frames: sample.current.slice(-HISTORY) }));
+        return;
+      }
+      detectedRef.current = detected;
+      setState((s) => ({ ...s, detected, status: "streaming" }));
+    }
+
+    const reading = readFrame(frame, detectedRef.current);
+    if (!reading) return;
+
+    recent.current = [...recent.current, reading].slice(-HISTORY);
+    const settled = isSettled(recent.current);
+    setState((s) => ({
+      ...s,
+      status: "streaming",
+      reading,
+      settled,
+      frames: [...s.frames, reading.raw].slice(-HISTORY),
+      error: null,
+    }));
+  }, []);
+
+  /**
+   * Feed the screen from the simulator instead of a port, for testing the weighbridge
+   * without the indicator. Frames go through the same framer and the same parser.
+   */
+  const simulate = useCallback(
+    (targetKg: number) => {
+      stopSimulator.current?.();
+      detectedRef.current = null;
+      sample.current = [];
+      recent.current = [];
+      setState((s) => ({
+        ...s, simulated: true, status: "listening", reading: null, settled: false,
+        frames: [], error: null,
+      }));
+      stopSimulator.current = runSimulator(targetKg, ingest);
+    },
+    [ingest],
+  );
+
+  const pump = useCallback(async (port: SerialPort) => {
+    const framer = new Framer();
+    stopRef.current = false;
+
+    while (!stopRef.current && port.readable) {
+      const reader = port.readable.getReader();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done || stopRef.current) break;
+          if (!value) continue;
+
+          // Identify the indicator from its first frames rather than assuming.
+          for (const frame of framer.push(value)) ingest(frame);
+        }
+      } catch (err) {
+        setState((s) => ({
+          ...s,
+          status: "error",
+          error: err instanceof Error ? err.message : "serial read failed",
+        }));
+        break;
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  }, [ingest]);
+
+  const open = useCallback(
+    async (port: SerialPort) => {
+      setState((s) => ({ ...s, status: "connecting", error: null }));
+      try {
+        await port.open({ baudRate: BAUD_RATE, dataBits: 8, stopBits: 1, parity: "none" });
+      } catch (err) {
+        // Already open from a previous mount is fine; anything else is not.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/already open/i.test(message)) {
+          setState((s) => ({ ...s, status: "error", error: message }));
+          return;
+        }
+      }
+      portRef.current = port;
+      detectedRef.current = null;
+      sample.current = [];
+      recent.current = [];
+      setState((s) => ({ ...s, status: "listening" }));
+      void pump(port);
+    },
+    [pump],
+  );
+
+  /** Asks the operator to pick the COM port. Needs a click — the browser requires it. */
+  const connect = useCallback(async () => {
+    stopSimulator.current?.();
+    stopSimulator.current = null;
+    setState((s) => ({ ...s, simulated: false }));
+    if (!navigator.serial) {
+      setState((s) => ({ ...s, status: "unsupported" }));
+      return;
+    }
+    try {
+      const port = await navigator.serial.requestPort();
+      await open(port);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // The operator closed the chooser — not an error worth showing.
+      if (/no port selected/i.test(message)) return;
+      setState((s) => ({ ...s, status: "error", error: message }));
+    }
+  }, [open]);
+
+  const disconnect = useCallback(async () => {
+    stopSimulator.current?.();
+    stopSimulator.current = null;
+    stopRef.current = true;
+    const port = portRef.current;
+    portRef.current = null;
+    recent.current = [];
+    try {
+      await port?.close();
+    } catch {
+      // Already gone.
+    }
+    setState({
+      status: "disconnected", simulated: false, reading: null, settled: false,
+      detected: null, frames: [], error: null,
+    });
+  }, []);
+
+  // A port the operator approved once is reopened silently on every later visit, so the
+  // weighbridge does not need setting up again at the start of each shift.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!navigator.serial) return;
+      const ports = await navigator.serial.getPorts().catch(() => []);
+      const port = ports[0];
+      if (port && !cancelled && !portRef.current && !stopSimulator.current) await open(port);
+    })();
+    return () => {
+      cancelled = true;
+      stopRef.current = true;
+      stopSimulator.current?.();
+    };
+  }, [open]);
+
+  return { ...state, connect, disconnect, simulate };
+}

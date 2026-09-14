@@ -10,6 +10,7 @@ import {
   ledgerEntries,
   payments,
   users,
+  weighEvents,
   weighTickets,
 } from "@/db/schema/index";
 import { requirePageRole } from "@/lib/auth/session";
@@ -38,6 +39,10 @@ export default async function DashboardPage() {
   startOfDay.setHours(0, 0, 0, 0);
 
   const settings = await getActiveSettings();
+
+  /** Recent-history window for the panels the owner reviews. */
+  const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const since = since14;
 
   let priceDPerKg: number | null = null;
   try {
@@ -143,6 +148,25 @@ export default async function DashboardPage() {
     .orderBy(desc(weighTickets.voidedAt))
     .limit(10);
 
+  // A weight that did not come off the indicator. The scale is wired in so this should be
+  // rare; when it is not rare, something is wrong with the equipment or with someone.
+  const manualWeights = await db
+    .select({
+      id: weighEvents.id,
+      serial: weighTickets.serial,
+      kind: weighEvents.kind,
+      weightG: weighEvents.weightG,
+      reason: weighEvents.reason,
+      at: weighEvents.capturedAt,
+      by: users.fullName,
+    })
+    .from(weighEvents)
+    .innerJoin(weighTickets, eq(weighTickets.id, weighEvents.ticketId))
+    .leftJoin(users, eq(users.id, weighEvents.operatorId))
+    .where(and(eq(weighEvents.source, "manual"), gte(weighEvents.capturedAt, since14)))
+    .orderBy(desc(weighEvents.capturedAt))
+    .limit(15);
+
   const overrides = await db
     .select({
       batchId: labAnalyses.batchId,
@@ -161,7 +185,6 @@ export default async function DashboardPage() {
   // Records created at the weighbridge with a truck on the scale. The weigher is allowed
   // to add these — stopping him would push the load back onto paper — so the control is
   // that the owner sees them and can check them against reality.
-  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const [newFarms, newVehicles, newDrivers] = await Promise.all([
     db
       .select({ name: counterparties.name, tin: counterparties.tin, by: users.fullName,
@@ -391,7 +414,8 @@ export default async function DashboardPage() {
           </Panel>
         )}
 
-        {(voided.length > 0 || overrides.length > 0 || reprints.length > 0) && (
+        {(voided.length > 0 || overrides.length > 0 || reprints.length > 0 ||
+          manualWeights.length > 0) && (
           <Panel title={tg.dashboard.alerts} tone="warn">
             {overrides.length > 0 && (
               <div className="mb-4">
@@ -404,6 +428,26 @@ export default async function DashboardPage() {
                       </span>
                       <span className="text-ink-soft">{o.reason}</span>
                       <span className="ms-auto text-ink-faint">{o.by}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {manualWeights.length > 0 && (
+              <div className="mb-4">
+                <h3 className="mb-2 text-sm font-medium">{tg.dashboard.manualWeights}</h3>
+                <ul className="space-y-1 text-sm">
+                  {manualWeights.map((m) => (
+                    <li key={m.id} className="flex flex-wrap gap-2">
+                      <span className="font-mono">{m.serial}</span>
+                      <span className="tabular">
+                        {m.kind === "GROSS" ? tg.ticket.gross : tg.ticket.tare}{" "}
+                        {gramsToKgString(m.weightG, 1)} {tg.common.kg}
+                      </span>
+                      <span className="text-ink-soft">{m.reason}</span>
+                      <span className="ms-auto text-ink-faint">
+                        {m.by} · {m.at.toLocaleDateString("ru-RU")}
+                      </span>
                     </li>
                   ))}
                 </ul>

@@ -1,0 +1,22 @@
+# HTTPS on the factory LAN.
+#
+# Caddy issues the certificate from its own internal authority, so this works with no
+# internet at all. Each station trusts it once — see docs/deployment.md — after which the
+# weighbridge browser is allowed to open the serial port.
+#
+# Replace the address with the laptop's fixed LAN address or hostname.
+{
+	local_certs
+	admin off
+}
+
+zarnishon.local, 192.168.1.10 {
+	encode gzip
+	reverse_proxy app:3000
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+	}
+}

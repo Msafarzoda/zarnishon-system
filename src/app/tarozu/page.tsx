@@ -86,6 +86,8 @@ export default async function ScalePage() {
   return (
     <Shell user={user} title={`${tg.scale.title} — ${tg.app.season}-${season}`}>
       <ScaleClient
+        // Rehearsal without the indicator, never on the factory server.
+        allowSimulation={process.env.NODE_ENV !== "production"}
         season={season}
         awaitingTare={awaitingTare.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
         recentlyWeighed={recentlyWeighed}

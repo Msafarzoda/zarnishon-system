@@ -214,6 +214,9 @@ async function newTruck(args: {
       ticketId: ticket.id,
       kind,
       weightG: kg * 1000,
+      // The indicator is not wired to a test run, so these say why they were typed.
+      source: "manual",
+      reason: "тафтиши система",
       operatorId: args.weigher.id,
       stationId: args.scale.id,
     });

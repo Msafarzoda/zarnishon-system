@@ -173,6 +173,22 @@ export async function captureWeight(input: CaptureWeightInput) {
     );
   }
 
+  // The indicator is wired to the station precisely so that nobody types a weight. Typing
+  // one anyway stays possible — an indicator fails and trucks keep arriving — but it is
+  // never silent: it costs a written reason and the owner sees it.
+  const source = input.source ?? "manual";
+  if (source === "manual" && !input.reason?.trim()) {
+    throw new DomainError(
+      "Вазни дастӣ бе сабаб қабул намешавад. / A hand-entered weight requires a reason — " +
+        "the weight should come from the indicator.",
+    );
+  }
+  if (source === "indicator" && !input.indicatorRaw?.trim()) {
+    throw new DomainError(
+      "Кадри тарозу нест. / A weight from the indicator must carry the frame it came from.",
+    );
+  }
+
   return await db.transaction(async (tx) => {
     const [ticket] = await tx
       .select()
@@ -196,7 +212,7 @@ export async function captureWeight(input: CaptureWeightInput) {
         ticketId: ticket.id,
         kind: input.kind,
         weightG: input.weightG,
-        source: input.source ?? "manual",
+        source,
         photoRef: input.photoRef ?? null,
         indicatorRaw: input.indicatorRaw ?? null,
         capturedAt,
@@ -259,7 +275,7 @@ export async function captureWeight(input: CaptureWeightInput) {
         serial: ticket.serial,
         kind: input.kind,
         weightG: input.weightG,
-        source: input.source ?? "manual",
+        source,
         supersedesId: input.supersedesId ?? null,
         reason: input.reason ?? null,
       },

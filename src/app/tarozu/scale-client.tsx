@@ -6,6 +6,9 @@ import { DomainError, gramsToKgString, kgStringToGrams } from "@/domain/units";
 import { netWeight } from "@/domain/weight";
 import { TRANSPORT_ORGS, normalisePlate } from "@/domain/plate";
 import { submit, drain } from "@/lib/offline/station-client";
+import { useScale } from "@/lib/scale/use-scale";
+import { ScalePanel } from "@/components/scale-panel";
+import { ManualWeight } from "@/components/manual-weight";
 import { tg } from "@/lib/i18n/tg";
 
 interface AwaitingTare {
@@ -21,6 +24,8 @@ interface AwaitingTare {
 }
 
 interface Props {
+  /** Simulation is for rehearsing without the indicator; the server turns it off in production. */
+  allowSimulation: boolean;
   season: number;
   awaitingTare: AwaitingTare[];
   recentlyWeighed: {
@@ -38,6 +43,9 @@ type Notice = { tone: "ok" | "warn" | "bad"; text: string } | null;
 
 export function ScaleClient(props: Props) {
   const router = useRouter();
+  // One connection to the indicator for the whole screen — брутто and тара read the same
+  // port, and opening it twice would fail.
+  const scale = useScale();
   const [tab, setTab] = useState<"arrive" | "depart">(
     props.awaitingTare.length > 0 ? "depart" : "arrive",
   );
@@ -92,10 +100,17 @@ export function ScaleClient(props: Props) {
       </div>
 
       {tab === "arrive" ? (
-        <ArrivalForm {...props} onNotice={setNotice} onDone={() => { setTab("depart"); router.refresh(); }} />
+        <ArrivalForm
+          {...props}
+          scale={scale}
+          onNotice={setNotice}
+          onDone={() => { setTab("depart"); router.refresh(); }}
+        />
       ) : (
         <TareList
           tickets={props.awaitingTare}
+          scale={scale}
+          allowSimulation={props.allowSimulation}
           onNotice={setNotice}
           onDone={() => router.refresh()}
         />
@@ -129,8 +144,13 @@ export function ScaleClient(props: Props) {
 // --------------------------------------------------------------------- arrival
 
 function ArrivalForm({
-  season, farms, drivers, vehicles, batches, varieties, onNotice, onDone,
-}: Props & { onNotice: (n: Notice) => void; onDone: () => void }) {
+  season, farms, drivers, vehicles, batches, varieties, scale, allowSimulation,
+  onNotice, onDone,
+}: Props & {
+  scale: ReturnType<typeof useScale>;
+  onNotice: (n: Notice) => void;
+  onDone: () => void;
+}) {
   // Local copies, because the weigher may add a farm, a truck or a driver right here
   // with the vehicle already on the scale. See src/server/services/registry.ts.
   const [farmList, setFarmList] = useState(farms);
@@ -142,26 +162,19 @@ function ArrivalForm({
   const [vehicleId, setVehicleId] = useState("");
   const [batchId, setBatchId] = useState("");
   const [varietyId, setVarietyId] = useState(varieties[0]?.id ?? "");
-  const [grossKg, setGrossKg] = useState("");
   const [busy, setBusy] = useState(false);
+  // Set only when the indicator cannot be used and a supervisor overrides it by hand.
+  const [manual, setManual] = useState<{ weightG: number; reason: string } | null>(null);
+
+  const fromScale = scale.settled ? scale.reading : null;
+  const weightG = manual?.weightG ?? fromScale?.weightG ?? null;
 
   const farm = farmList.find((f) => f.id === consignorId);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     onNotice(null);
-
-    let weightG: number;
-    try {
-      weightG = kgStringToGrams(grossKg);
-    } catch {
-      onNotice({ tone: "bad", text: `${tg.scale.enterWeight} — ${tg.common.error}` });
-      return;
-    }
-    if (weightG <= 0) {
-      onNotice({ tone: "bad", text: tg.scale.enterWeight });
-      return;
-    }
+    if (weightG === null || weightG <= 0) return;
 
     setBusy(true);
     try {
@@ -184,17 +197,22 @@ function ArrivalForm({
       if (created.kind === "queued") {
         onNotice({
           tone: "warn",
-          text: `${tg.app.offline}. ${tg.scale.captureGross}: ${grossKg} ${tg.common.kg}`,
+          text: `${tg.app.offline}. ${tg.scale.captureGross}: ` +
+            `${gramsToKgString(weightG, 1)} ${tg.common.kg}`,
         });
         return;
       }
 
+      // The raw indicator frame travels with the weighing, so what the scale actually
+      // said is on the record and not merely what the screen showed.
       const weighed = await submit("/api/weighings", {
         ticketId: created.result.ticketId,
         kind: "GROSS",
         weightG,
         capturedAt: new Date().toISOString(),
-        source: "manual",
+        source: manual || scale.simulated ? "manual" : "indicator",
+        indicatorRaw: manual || scale.simulated ? undefined : (fromScale?.raw ?? undefined),
+        reason: manual?.reason ?? (scale.simulated ? tg.scale.simulationReason : undefined),
       });
 
       if (weighed.kind === "rejected") {
@@ -204,9 +222,10 @@ function ArrivalForm({
 
       onNotice({
         tone: "ok",
-        text: `${created.result.serial} — ${tg.ticket.gross} ${grossKg} ${tg.common.kg}`,
+        text: `${created.result.serial} — ${tg.ticket.gross} ` +
+          `${gramsToKgString(weightG, 1)} ${tg.common.kg}`,
       });
-      setGrossKg("");
+      setManual(null);
       setDriverId("");
       setVehicleId("");
       onDone();
@@ -344,22 +363,23 @@ function ArrivalForm({
         </div>
       </div>
 
-      <div className="rounded-lg bg-brand-light p-4">
-        <label className="label text-brand-dark" htmlFor="gross">
-          {tg.ticket.gross} — {tg.scale.enterWeight}
-        </label>
-        <p className="-mt-1 mb-2 text-sm text-brand-dark/75">{tg.scale.grossHint}</p>
-        <input
-          id="gross" inputMode="decimal" required autoComplete="off"
-          className="input-number" placeholder="3015"
-          value={grossKg} onChange={(e) => setGrossKg(e.target.value)}
-        />
-      </div>
+      <ScalePanel scale={scale} label={tg.ticket.gross} hint={tg.scale.grossHint}
+                  allowSimulation={allowSimulation} />
 
-      <button type="submit" disabled={busy || !consignorId || !batchId || !grossKg}
+      <ManualWeight
+        value={manual}
+        onChange={setManual}
+        scaleAvailable={scale.status === "streaming"}
+      />
+
+      <button type="submit"
+              disabled={busy || !consignorId || !batchId || weightG === null || weightG <= 0}
               className="btn-primary btn-lg w-full">
         {busy ? tg.common.loading : tg.scale.captureGross}
       </button>
+      {weightG === null && (
+        <p className="text-center text-sm text-ink-faint">{tg.scale.captureWhenStable}</p>
+      )}
     </form>
   );
 }
@@ -486,8 +506,14 @@ function SelectWithAdd({
 // ------------------------------------------------------------------------ tare
 
 function TareList({
-  tickets, onNotice, onDone,
-}: { tickets: AwaitingTare[]; onNotice: (n: Notice) => void; onDone: () => void }) {
+  tickets, scale, allowSimulation, onNotice, onDone,
+}: {
+  tickets: AwaitingTare[];
+  scale: ReturnType<typeof useScale>;
+  allowSimulation: boolean;
+  onNotice: (n: Notice) => void;
+  onDone: () => void;
+}) {
   const [selected, setSelected] = useState<string | null>(tickets[0]?.id ?? null);
 
   if (tickets.length === 0) {
@@ -502,6 +528,8 @@ function TareList({
         <TareCard
           key={t.id}
           ticket={t}
+          scale={scale}
+          allowSimulation={allowSimulation}
           open={selected === t.id}
           onOpen={() => setSelected(selected === t.id ? null : t.id)}
           onNotice={onNotice}
@@ -513,19 +541,25 @@ function TareList({
 }
 
 function TareCard({
-  ticket, open, onOpen, onNotice, onDone,
+  ticket, scale, allowSimulation, open, onOpen, onNotice, onDone,
 }: {
-  ticket: AwaitingTare; open: boolean; onOpen: () => void;
+  ticket: AwaitingTare;
+  scale: ReturnType<typeof useScale>;
+  allowSimulation: boolean;
+  open: boolean; onOpen: () => void;
   onNotice: (n: Notice) => void; onDone: () => void;
 }) {
-  const [tareKg, setTareKg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState<{ weightG: number; reason: string } | null>(null);
 
-  // Show the operator the нетто as he types, before he commits it.
+  const fromScale = scale.settled ? scale.reading : null;
+  const tareG = manual?.weightG ?? fromScale?.weightG ?? null;
+
+  // Show the нетто the moment the platform settles, before anything is committed.
   let preview: { netG: number } | { error: string } | null = null;
-  if (tareKg.trim() && ticket.grossG !== null) {
+  if (tareG !== null && ticket.grossG !== null) {
     try {
-      preview = { netG: netWeight(ticket.grossG, kgStringToGrams(tareKg)) };
+      preview = { netG: netWeight(ticket.grossG, tareG) };
     } catch (err) {
       preview = { error: err instanceof DomainError ? tg.scale.tareTooBig : tg.common.error };
     }
@@ -534,16 +568,18 @@ function TareCard({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     onNotice(null);
-    if (!preview || "error" in preview) return;
+    if (!preview || "error" in preview || tareG === null) return;
 
     setBusy(true);
     try {
       const res = await submit<{ netG: number | null }>("/api/weighings", {
         ticketId: ticket.id,
         kind: "TARE",
-        weightG: kgStringToGrams(tareKg),
+        weightG: tareG,
         capturedAt: new Date().toISOString(),
-        source: "manual",
+        source: manual || scale.simulated ? "manual" : "indicator",
+        indicatorRaw: manual || scale.simulated ? undefined : (fromScale?.raw ?? undefined),
+        reason: manual?.reason ?? (scale.simulated ? tg.scale.simulationReason : undefined),
       });
 
       if (res.kind === "rejected") {
@@ -583,17 +619,14 @@ function TareCard({
 
       {open && (
         <form onSubmit={onSubmit} className="border-t border-paper-line p-4 space-y-4">
-          <div>
-            <label className="label" htmlFor={`tare-${ticket.id}`}>
-              {tg.ticket.tare} — {tg.scale.enterWeight}
-            </label>
-            <p className="-mt-1 mb-2 text-sm text-ink-soft">{tg.scale.tareHint}</p>
-            <input
-              id={`tare-${ticket.id}`} inputMode="decimal" autoComplete="off" autoFocus
-              className="input-number" placeholder="2380"
-              value={tareKg} onChange={(e) => setTareKg(e.target.value)}
-            />
-          </div>
+          <ScalePanel scale={scale} label={tg.ticket.tare} hint={tg.scale.tareHint}
+                      allowSimulation={allowSimulation} />
+
+          <ManualWeight
+            value={manual}
+            onChange={setManual}
+            scaleAvailable={scale.status === "streaming"}
+          />
 
           {preview && (
             "error" in preview ? (
@@ -612,7 +645,7 @@ function TareCard({
 
           <div className="flex gap-2">
             <button type="submit"
-                    disabled={busy || !preview || "error" in preview}
+                    disabled={busy || !preview || "error" in preview || tareG === null}
                     className="btn-primary btn-lg flex-1">
               {busy ? tg.common.loading : tg.scale.captureTare}
             </button>

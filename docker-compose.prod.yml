@@ -1,0 +1,79 @@
+# The factory laptop. Everything the weighbridge needs runs here, on the local network,
+# with no dependency on the internet being up.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zarnishon
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.production}
+      POSTGRES_DB: zarnishon
+      # Postgres is slow to start on a cold laptop disk; the app waits for this.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zarnishon"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Not published to the network: only the app talks to it.
+    expose:
+      - "5432"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://zarnishon:${DB_PASSWORD}@db:5432/zarnishon
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env.production}
+      NODE_ENV: production
+    expose:
+      - "3000"
+
+  # Terminates HTTPS on the LAN. The stations need a secure origin: without it the
+  # browser refuses to open the serial port, and the weighbridge falls back to typing.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  # Nightly dump, kept on the laptop and copied off it. A machine in a cotton factory
+  # eventually dies of dust, heat or theft; the backup is the system.
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      'while true; do
+         pg_dump -h db -U zarnishon -d zarnishon -Fc
+           -f /backups/zarnishon-$$(date +%Y%m%d-%H%M).dump &&
+         ls -1t /backups/*.dump | tail -n +31 | xargs -r rm --;
+         sleep 86400;
+       done'
+
+volumes:
+  pgdata:
+  caddy-data:
+  caddy-config:
