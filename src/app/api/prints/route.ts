@@ -4,9 +4,12 @@ import { recordPrint } from "@/server/services/printing";
 
 const schema = z.object({
   clientUuid: z.string().uuid(),
-  ticketId: z.string().uuid(),
-  kind: z.enum(["borkhat", "tahlil"]).optional(),
+  ticketId: z.string().uuid().optional(),
+  paymentId: z.string().uuid().optional(),
+  kind: z.enum(["borkhat", "tahlil", "pardokht"]).optional(),
   reason: z.string().max(300).optional(),
+}).refine((v) => !v.ticketId !== !v.paymentId, {
+  message: "Exactly one of ticketId or paymentId must be given",
 });
 
 export const POST = handler({

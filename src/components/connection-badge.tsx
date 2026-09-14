@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { pending, rejected, type OutboxOperation } from "@/lib/offline/outbox";
+import { discard, pending, rejected, type OutboxOperation } from "@/lib/offline/outbox";
 import { drain } from "@/lib/offline/station-client";
 import { tg } from "@/lib/i18n/tg";
 
@@ -121,6 +121,15 @@ export function ConnectionBadge() {
                 </div>
                 {/* The server refused this on its merits. It will not be retried. */}
                 <p className="text-alarm">{op.lastError}</p>
+                <button
+                  onClick={async () => {
+                    await discard(op.clientUuid);
+                    await refresh();
+                  }}
+                  className="mt-0.5 text-ink-faint underline hover:text-ink"
+                >
+                  {tg.app.discardOperation}
+                </button>
               </li>
             ))}
           </ul>

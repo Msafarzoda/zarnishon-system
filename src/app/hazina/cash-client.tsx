@@ -29,8 +29,22 @@ interface UnpaidTicket {
   priceDPerKg: number | null;
 }
 
+export interface PaidRow {
+  paymentId: string;
+  invoiceNo: string;
+  paidAt: string;
+  cashPayableD: number;
+  grossAmountD: number;
+  advanceOffsetD: number;
+  payableG: number;
+  reversed: boolean;
+  farm: string;
+  serial: string;
+  cashier: string | null;
+}
+
 export function CashClient({
-  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms, onScale, awaitingLab,
+  cashOnHandD, generalPriceDPerKg, priceError, tickets, farms, onScale, awaitingLab, history,
 }: {
   cashOnHandD: number;
   generalPriceDPerKg: number | null;
@@ -40,6 +54,7 @@ export function CashClient({
   /** Loads still upstream — shown so an empty list explains itself. */
   onScale: number;
   awaitingLab: number;
+  history: PaidRow[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -104,6 +119,8 @@ export function CashClient({
           {tg.advance.issue}
         </button>
       </div>
+
+      {history.length > 0 && <PaymentHistory history={history} />}
 
       {showAdvance && (
         <AdvanceForm farms={farms} onNotice={setNotice}
@@ -209,11 +226,14 @@ function PaymentPanel({
   async function pay() {
     setBusy(true);
     try {
-      const res = await submit<{ invoiceNo: string; cashPayableD: number }>("/api/payments", {
-        ticketId: ticket.id,
-        copyCollected,
-        paidAt: new Date().toISOString(),
-      });
+      const res = await submit<{ paymentId: string; invoiceNo: string; cashPayableD: number }>(
+        "/api/payments",
+        {
+          ticketId: ticket.id,
+          copyCollected,
+          paidAt: new Date().toISOString(),
+        },
+      );
 
       if (res.kind === "rejected") {
         onNotice({ tone: "bad", text: res.message });
@@ -227,9 +247,12 @@ function PaymentPanel({
 
       onNotice({
         tone: "ok",
-        text: `${res.result.invoiceNo} — ${tg.cash.cashToPay} ` +
-          `${diramToSomoniString(res.result.cashPayableD)} ${tg.common.somoni}`,
+        text:
+          `${ticket.farm} — ${diramToSomoniString(res.result.cashPayableD)} ${tg.common.somoni} ` +
+          `· ${res.result.invoiceNo}`,
       });
+      // The farmer leaves with a receipt, the same way he leaves the scale with a Борхат.
+      window.open(`/pardokht/${res.result.paymentId}`, "_blank");
       onDone();
     } finally {
       setBusy(false);
@@ -370,5 +393,86 @@ function AdvanceForm({
         {busy ? tg.common.loading : tg.advance.issue}
       </button>
     </form>
+  );
+}
+
+
+// ------------------------------------------------------------------- history
+
+/**
+ * Who was paid, and when. Grouped by day, newest first, each row linking to its receipt.
+ * The cashier has to be able to answer "who did we pay today?" without the owner asking
+ * the database.
+ */
+function PaymentHistory({ history }: { history: PaidRow[] }) {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+
+  const bucket = (iso: string) => {
+    const at = new Date(iso);
+    if (at >= startOfToday) return tg.cash.today;
+    if (at >= startOfYesterday) return tg.cash.yesterday;
+    return at.toLocaleDateString("ru-RU");
+  };
+
+  const groups: { label: string; rows: PaidRow[] }[] = [];
+  for (const row of history) {
+    const label = bucket(row.paidAt);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.rows.push(row);
+    else groups.push({ label, rows: [row] });
+  }
+
+  return (
+    <section className="card overflow-x-auto p-4">
+      <h2 className="mb-3 text-sm font-semibold text-ink-soft">{tg.cash.history}</h2>
+      {groups.map((group) => {
+        const total = group.rows
+          .filter((r) => !r.reversed)
+          .reduce((n, r) => n + r.cashPayableD, 0);
+        return (
+          <div key={group.label} className="mb-4 last:mb-0">
+            <div className="mb-1 flex items-baseline justify-between">
+              <h3 className="text-sm font-medium">{group.label}</h3>
+              <span className="tabular text-sm font-semibold">
+                {diramToSomoniString(total)} {tg.common.somoni}
+              </span>
+            </div>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-paper-line">
+                {group.rows.map((r) => (
+                  <tr key={r.paymentId} className={r.reversed ? "text-ink-faint line-through" : ""}>
+                    <td className="py-1.5 tabular text-ink-faint">
+                      {new Date(r.paidAt).toLocaleTimeString("ru-RU", {
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="py-1.5 font-medium">{r.farm}</td>
+                    <td className="py-1.5 font-mono text-xs text-brand">{r.serial}</td>
+                    <td className="py-1.5 text-end tabular text-ink-soft">
+                      {gramsToKgString(r.payableG, 1)} {tg.common.kg}
+                    </td>
+                    {/* What was recovered against an advance never left the drawer. */}
+                    <td className="py-1.5 text-end tabular text-warn">
+                      {r.advanceOffsetD > 0 ? `− ${diramToSomoniString(r.advanceOffsetD)}` : ""}
+                    </td>
+                    <td className="py-1.5 text-end tabular font-semibold">
+                      {diramToSomoniString(r.cashPayableD)}
+                    </td>
+                    <td className="py-1.5 text-end">
+                      <a href={`/pardokht/${r.paymentId}`} className="text-brand hover:underline">
+                        {tg.cash.receipt}
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </section>
   );
 }

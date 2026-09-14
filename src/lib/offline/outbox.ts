@@ -16,9 +16,43 @@ const STORE = "operations";
 
 export type OutboxStatus = "PENDING" | "SENDING" | "APPLIED" | "REJECTED";
 
+/** What a queued operation should do with the answer the server gave it. */
+export type Disposition = "applied" | "requeue" | "rejected";
+
+/**
+ * Decide an operation's fate from the HTTP status alone.
+ *
+ * The distinction that matters: **"the server refused this operation" is not the same as
+ * "the server refused this person".**
+ *
+ * A 401/403 means the wrong user is signed in on this shared browser, or a session
+ * expired while the work sat in the queue. The weighing itself is perfectly good, so it
+ * is requeued and goes through when its author signs in again. Treating it as a refusal
+ * silently destroyed real weighings.
+ *
+ * Any other 4xx is the business rejecting it on its merits — already paid, tare above
+ * gross — which will never succeed however often it is retried, so it is surfaced to the
+ * operator instead of being retried for ever.
+ */
+export function dispositionFor(status: number): Disposition {
+  if (status >= 200 && status < 300) return "applied";
+  if (status === 401 || status === 403) return "requeue";
+  if (status >= 400 && status < 500) return "rejected";
+  return "requeue"; // 5xx — the server is unwell, not the operation
+}
+
 export interface OutboxOperation<T = unknown> {
   /** Idempotency key. Generated here, on the station, before anything is sent. */
   clientUuid: string;
+  /**
+   * Who was signed in when this was queued.
+   *
+   * One browser is used by a whole shift — the weigher signs out, the cashier signs in.
+   * The outbox is shared across them, so without this the cashier's session would flush
+   * the weigher's queued weighings, the server would refuse them as the wrong role, and
+   * real work would be thrown away. Only the author's own session sends their work.
+   */
+  userId?: string;
   /** Server endpoint path, e.g. "/api/tickets/weigh". */
   operation: string;
   payload: T;
@@ -63,6 +97,32 @@ export function newClientUuid(): string {
   return crypto.randomUUID();
 }
 
+const ACTOR_KEY = "zarnishon-actor";
+
+/** Remember who is signed in on this tab, so queued work is sent under the right session. */
+export function setActor(userId: string): void {
+  try {
+    sessionStorage.setItem(ACTOR_KEY, userId);
+  } catch {
+    // Private window — the queue simply will not be filtered by author.
+  }
+}
+
+export function currentActor(): string | undefined {
+  try {
+    return sessionStorage.getItem(ACTOR_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Work queued by whoever is signed in now. Operations from before this change have no
+ *  author recorded and are treated as everyone's, so nothing is stranded. */
+function ownedByCurrentActor(op: OutboxOperation): boolean {
+  const actor = currentActor();
+  return !actor || !op.userId || op.userId === actor;
+}
+
 /** Queue an operation. Returns immediately — the screen must not wait on the network. */
 export async function enqueue<T>(
   operation: string,
@@ -71,6 +131,7 @@ export async function enqueue<T>(
 ): Promise<OutboxOperation<T>> {
   const op: OutboxOperation<T> = {
     clientUuid,
+    userId: currentActor(),
     operation,
     payload,
     status: "PENDING",
@@ -118,7 +179,7 @@ export async function setStatus(
  */
 export async function recoverInterrupted(): Promise<number> {
   const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
-  const stuck = all.filter((op) => op.status === "SENDING");
+  const stuck = all.filter((op) => op.status === "SENDING" && ownedByCurrentActor(op));
   for (const op of stuck) {
     op.status = "PENDING";
     op.lastError = "interrupted";
@@ -131,6 +192,7 @@ export async function pending(): Promise<OutboxOperation[]> {
   const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
   return all
     .filter((op) => op.status === "PENDING" || op.status === "SENDING")
+    .filter(ownedByCurrentActor)
     .sort((a, b) => a.clientTimestamp.localeCompare(b.clientTimestamp));
 }
 
@@ -180,7 +242,9 @@ export async function flush(
       break;
     }
 
-    if (response.ok) {
+    const disposition = dispositionFor(response.status);
+
+    if (disposition === "applied") {
       op.status = "APPLIED";
       op.result = await response.json().catch(() => null);
       op.lastError = undefined;
@@ -189,7 +253,7 @@ export async function flush(
       continue;
     }
 
-    if (response.status >= 400 && response.status < 500) {
+    if (disposition === "rejected") {
       op.status = "REJECTED";
       op.lastError = await response.text().catch(() => `HTTP ${response.status}`);
       await update(op);
@@ -197,9 +261,12 @@ export async function flush(
       continue;
     }
 
-    // 5xx — the server is unwell, not the operation. Requeue and stop.
+    // Requeue and stop, keeping order. The next flush picks up where this one stopped.
     op.status = "PENDING";
-    op.lastError = `HTTP ${response.status}`;
+    op.lastError =
+      response.status === 401 || response.status === 403
+        ? "not signed in as the operator who recorded this"
+        : `HTTP ${response.status}`;
     await update(op);
     break;
   }
@@ -210,7 +277,7 @@ export async function flush(
 /** Operations the server refused. These need a human — they are never retried silently. */
 export async function rejected(): Promise<OutboxOperation[]> {
   const all = await tx<OutboxOperation[]>("readonly", (store) => store.getAll());
-  return all.filter((op) => op.status === "REJECTED");
+  return all.filter((op) => op.status === "REJECTED" && ownedByCurrentActor(op));
 }
 
 /** Clear operations the server has confirmed, keeping a short local history. */
@@ -224,4 +291,12 @@ export async function pruneApplied(keepLast = 200): Promise<number> {
     await tx("readwrite", (store) => store.delete(op.clientUuid));
   }
   return doomed.length;
+}
+
+/** Discard one operation the server refused. Only a REJECTED one — nothing unsent. */
+export async function discard(clientUuid: string): Promise<boolean> {
+  const op = await get(clientUuid);
+  if (!op || op.status !== "REJECTED") return false;
+  await tx("readwrite", (store) => store.delete(clientUuid));
+  return true;
 }

@@ -1,10 +1,12 @@
-import { and, asc, eq, sql as raw } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   batches,
   counterparties,
   ledgerAccounts,
   ledgerEntries,
+  payments,
+  users,
   varieties,
   vehicles,
   weighTickets,
@@ -23,6 +25,8 @@ export default async function CashDeskPage() {
 
   const season = new Date().getFullYear();
   const now = new Date();
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
 
   // Tickets the lab has cleared and nobody has been paid for yet — these are exactly the
   // farmers still holding a stamped Copy C.
@@ -116,6 +120,34 @@ export default async function CashDeskPage() {
     .from(weighTickets)
     .where(eq(weighTickets.season, season));
 
+  // Хазина is an account of money that left the drawer: who was paid, how much, and
+  // against which Борхат. Without it the cashier hands out cash all day and has no way
+  // to answer "who did we pay?" — and neither does the owner.
+  const since = new Date(startOfDay);
+  since.setDate(since.getDate() - 7);
+
+  const history = await db
+    .select({
+      paymentId: payments.id,
+      invoiceNo: payments.invoiceNo,
+      paidAt: payments.paidAt,
+      cashPayableD: payments.cashPayableD,
+      grossAmountD: payments.grossAmountD,
+      advanceOffsetD: payments.advanceOffsetD,
+      payableG: payments.payableG,
+      reversedAt: payments.reversedAt,
+      farm: counterparties.name,
+      serial: weighTickets.serial,
+      cashier: users.fullName,
+    })
+    .from(payments)
+    .innerJoin(counterparties, eq(counterparties.id, payments.counterpartyId))
+    .innerJoin(weighTickets, eq(weighTickets.id, payments.ticketId))
+    .leftJoin(users, eq(users.id, payments.paidBy))
+    .where(gte(payments.paidAt, since))
+    .orderBy(desc(payments.paidAt))
+    .limit(100);
+
   const farmList = await db
     .select({ id: counterparties.id, name: counterparties.name })
     .from(counterparties)
@@ -130,6 +162,8 @@ export default async function CashDeskPage() {
         priceError={priceError}
         onScale={Number(upstream?.onScale ?? 0)}
         awaitingLab={Number(upstream?.awaitingLab ?? 0)}
+        history={history.map((h) => ({ ...h, paidAt: h.paidAt.toISOString(),
+                                       reversed: h.reversedAt !== null }))}
         tickets={unpaid.map((t) => ({
           ...t,
           netG: t.netG ?? 0,

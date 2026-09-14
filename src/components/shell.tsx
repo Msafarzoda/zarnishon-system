@@ -3,6 +3,7 @@ import { tg } from "@/lib/i18n/tg";
 import type { CurrentUser, Role } from "@/lib/auth/session";
 import { SignOutButton } from "./sign-out-button";
 import { ConnectionBadge } from "./connection-badge";
+import { ActorTag } from "./actor-tag";
 
 /** Which sections each role may open. Mirrors docs/domain.md §6. */
 const NAV: Record<Role, { href: string; label: string }[]> = {
@@ -71,6 +72,7 @@ export function Shell({
           </nav>
 
           <div className="ms-auto flex items-center gap-3 text-sm">
+            <ActorTag userId={user.id} />
             <ConnectionBadge />
             <span className="text-white/85">
               {user.fullName}

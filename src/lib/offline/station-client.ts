@@ -66,6 +66,11 @@ export async function submit<T>(
       return { kind: "applied", result, clientUuid };
     }
 
+    // The wrong person is signed in, or the session expired. Keep the work queued.
+    if (response.status === 401 || response.status === 403) {
+      return { kind: "queued", clientUuid, reason: "not signed in" };
+    }
+
     if (response.status >= 400 && response.status < 500) {
       const body = (await response.json().catch(() => null)) as { error?: string } | null;
       await setStatus(clientUuid, "REJECTED", { lastError: body?.error ?? `HTTP ${response.status}` });

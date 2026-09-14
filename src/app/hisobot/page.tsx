@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, sql as raw } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   advances,
@@ -188,6 +188,26 @@ export default async function DashboardPage() {
       .limit(10),
   ]);
 
+  // A total with no names behind it cannot be checked against anything. The owner needs
+  // to see which farms the money actually went to.
+  const paidTodayRows = await db
+    .select({
+      paymentId: payments.id,
+      farm: counterparties.name,
+      serial: weighTickets.serial,
+      cashPayableD: payments.cashPayableD,
+      advanceOffsetD: payments.advanceOffsetD,
+      paidAt: payments.paidAt,
+      cashier: users.fullName,
+    })
+    .from(payments)
+    .innerJoin(counterparties, eq(counterparties.id, payments.counterpartyId))
+    .innerJoin(weighTickets, eq(weighTickets.id, payments.ticketId))
+    .leftJoin(users, eq(users.id, payments.paidBy))
+    .where(and(gte(payments.paidAt, startOfDay), isNull(payments.reversedAt)))
+    .orderBy(desc(payments.paidAt))
+    .limit(30);
+
   const advanceByFarm = await db
     .select({
       farm: counterparties.name,
@@ -289,6 +309,35 @@ export default async function DashboardPage() {
           <section className="grid gap-4 sm:grid-cols-2">
             <Tile label={tg.dashboard.seedRevenue} value={som(-Number(seedRevenue?.total ?? 0))} />
           </section>
+        )}
+
+        {paidTodayRows.length > 0 && (
+          <Panel title={`${tg.dashboard.paidToday} — ${tg.cash.history}`}>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-paper-line">
+                {paidTodayRows.map((r) => (
+                  <tr key={r.paymentId}>
+                    <td className="py-1.5 tabular text-ink-faint">
+                      {r.paidAt.toLocaleTimeString("ru-RU", {
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="py-1.5 font-medium">{r.farm}</td>
+                    <td className="py-1.5 font-mono text-xs text-brand">{r.serial}</td>
+                    <td className="py-1.5 text-end tabular text-warn">
+                      {r.advanceOffsetD > 0
+                        ? `− ${diramToSomoniString(r.advanceOffsetD)}`
+                        : ""}
+                    </td>
+                    <td className="py-1.5 text-end tabular font-semibold">
+                      {diramToSomoniString(r.cashPayableD)}
+                    </td>
+                    <td className="py-1.5 text-end text-ink-faint">{r.cashier}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
         )}
 
         {advanceByFarm.length > 0 && (

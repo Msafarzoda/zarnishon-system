@@ -1,6 +1,6 @@
 import { and, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
-import { auditLog, weighTickets } from "@/db/schema/index";
+import { auditLog, payments, weighTickets } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
 
 /**
@@ -15,11 +15,14 @@ import { DomainError } from "@/domain/units";
  * driver's copy may exist, and that is exactly what the owner needs to see.
  */
 
-export type PrintKind = "borkhat" | "tahlil";
+export type PrintKind = "borkhat" | "tahlil" | "pardokht";
 
 export interface RecordPrintInput {
   clientUuid: string;
-  ticketId: string;
+  /** The Борхат, for the waybill and the lab certificate. */
+  ticketId?: string;
+  /** The payment, for the cash receipt. Exactly one of the two. */
+  paymentId?: string;
   /** Which document: the Борхат itself, or the lab's Форма №9-хл certificate. */
   kind?: PrintKind;
   actorId: string;
@@ -30,28 +33,51 @@ export interface RecordPrintInput {
 
 export async function recordPrint(input: RecordPrintInput) {
   const kind: PrintKind = input.kind ?? "borkhat";
-  const action = kind === "tahlil" ? "lab.print" : "ticket.print";
+  const action =
+    kind === "tahlil" ? "lab.print" : kind === "pardokht" ? "payment.print" : "ticket.print";
 
-  const [ticket] = await db
-    .select({ id: weighTickets.id, serial: weighTickets.serial })
-    .from(weighTickets)
-    .where(eq(weighTickets.id, input.ticketId))
-    .limit(1);
-  if (!ticket) throw new DomainError("Борхат ёфт нашуд. / Ticket not found.");
+  // The receipt is keyed on the payment; the waybill and certificate on the Борхат.
+  let entityId: string;
+  let entityTable: string;
+  let serial: string;
+
+  if (kind === "pardokht") {
+    if (!input.paymentId) throw new DomainError("paymentId is required for a receipt print.");
+    const [payment] = await db
+      .select({ id: payments.id, invoiceNo: payments.invoiceNo })
+      .from(payments)
+      .where(eq(payments.id, input.paymentId))
+      .limit(1);
+    if (!payment) throw new DomainError("Ҳисобнома ёфт нашуд. / Payment not found.");
+    entityId = payment.id;
+    entityTable = "payments";
+    serial = payment.invoiceNo;
+  } else {
+    if (!input.ticketId) throw new DomainError("ticketId is required for this print.");
+    const [ticket] = await db
+      .select({ id: weighTickets.id, serial: weighTickets.serial })
+      .from(weighTickets)
+      .where(eq(weighTickets.id, input.ticketId))
+      .limit(1);
+    if (!ticket) throw new DomainError("Борхат ёфт нашуд. / Ticket not found.");
+    entityId = ticket.id;
+    entityTable = "weigh_tickets";
+    serial = ticket.serial;
+  }
 
   const [before] = await db
     .select({ n: raw<string>`COUNT(*)` })
     .from(auditLog)
-    .where(and(eq(auditLog.entityId, ticket.id), eq(auditLog.action, action)));
+    .where(and(eq(auditLog.entityId, entityId), eq(auditLog.action, action)));
 
   const previous = Number(before?.n ?? 0);
 
   await db.insert(auditLog).values({
     action,
-    entityTable: "weigh_tickets",
-    entityId: ticket.id,
+    entityTable,
+    entityId,
     payload: {
-      serial: ticket.serial,
+      serial,
       kind,
       copies: 3,
       // 0 on the original print; 1 and up mean extra stamped copies may now exist.
@@ -64,7 +90,7 @@ export async function recordPrint(input: RecordPrintInput) {
     occurredAt: new Date(),
   });
 
-  return { serial: ticket.serial, printCount: previous + 1, isReprint: previous > 0 };
+  return { serial, printCount: previous + 1, isReprint: previous > 0 };
 }
 
 export interface Reprint {
