@@ -92,11 +92,61 @@ office with nothing attached to it.
 
 
 
-On the indicator, under **设置**: continuous transmission, **9600** baud, **8 data bits,
-1 stop bit, no parity**.
+### The cable
+
+The D2008's back panel carries four ports. The one to use is **通讯接口** — the DB9 on the
+right, next to the round load-cell connector. Not 打印机接口 (DB25, printer) and not
+大屏幕接口 (DB15, remote display).
+
+```
+D2008 通讯接口 (DB9 male)
+        │
+  DB9 female–female gender changer
+        │
+  USB→RS232 adapter (DB9 male, USB-A)
+        │
+  Weighbridge PC
+```
+
+Both the indicator port and the adapter are male, which is why the changer is
+female-to-female. Add the male-female extension between adapter and changer if the PC is
+more than about a metre away.
+
+### The indicator
+
+Under **设置**: continuous transmission, **9600** baud, **8 data bits, 1 stop bit, no
+parity**.
 
 On the PC, install the **CH340** or **PL2303** driver for the adapter, then confirm the
 COM port appears under Device Manager → Ports.
+
+### If nothing arrives
+
+In order, before suspecting the app:
+
+1. **Baud rate.** Try 4800, 19200, 2400, 1200 on the indicator. Wrong baud produces
+   either silence or unbroken garbage.
+2. **Continuous mode is actually on.** In command mode the indicator says nothing until
+   asked.
+3. **Pins 2 and 3 may need crossing.** RS-232 has a direction: if the indicator transmits
+   on the same pin the PC transmits on, neither hears the other. A **null modem adapter**
+   (about $3) swaps them. This is the usual cause when the cable is right and the settings
+   are right — try it before replacing anything.
+
+### Commissioning: check it against the display
+
+Open **Тарозу**, connect, then expand **Маълумоти техникӣ — кадрҳои тарозу**. It shows the
+raw bytes arriving and what the stream was identified as.
+
+**Put a known weight on the platform and confirm the number on this screen matches the
+number on the indicator's own display.** The manual describes the output only as "a short
+ASCII string with a checksum", which fits several incompatible formats — so this is
+checked once, by eye, before a single truck is weighed. If they do not match, send those
+raw frames and the displayed weight and the parser can be corrected; the system has a
+custom-protocol path for exactly this.
+
+The 稳定 lamp on the indicator is the stability signal the capture button waits for. Watch
+it: the button should go active at the same moment that lamp lights.
 
 In the app, open **Тарозу** and press **Тарозуро пайваст кардан** once. Chrome asks which
 port; pick the adapter. The choice is remembered, so the operator does not repeat it

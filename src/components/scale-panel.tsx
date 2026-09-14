@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { gramsToKgString } from "@/domain/units";
 import type { ScaleState } from "@/lib/scale/use-scale";
 import type { ScaleReading } from "@/domain/scale";
@@ -104,7 +105,45 @@ export function ScalePanel({
       )}
 
       {allowSimulation && <SimulateControls scale={scale} />}
+
+      <Diagnostics scale={scale} />
     </div>
+  );
+}
+
+/**
+ * The raw bytes coming off the port, and what the stream was identified as.
+ *
+ * This is for commissioning. The manual says "a short ASCII string with a checksum",
+ * which describes several incompatible formats, so before a single truck is weighed
+ * somebody compares these frames against the number on the indicator's own display. If
+ * the weight here does not match the display, nothing else in the system can be trusted.
+ */
+function Diagnostics({ scale }: { scale: ScaleState }) {
+  const [open, setOpen] = useState(false);
+  if (scale.frames.length === 0) return null;
+
+  return (
+    <details
+      className="mt-3 border-t border-paper-line pt-2 text-xs"
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer text-ink-faint hover:text-ink">
+        {tg.scale.diagnostics}
+        {scale.detected && (
+          <span className="ms-2 font-medium">
+            {scale.detected.kind === "toledo" ? "Toledo / Keli" : scale.detected.protocol.id}
+          </span>
+        )}
+      </summary>
+      <p className="mt-1 text-ink-faint">{tg.scale.diagnosticsHint}</p>
+      <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-ink-soft">
+        {scale.frames.map((frame, i) => (
+          <li key={i} className="truncate">{frame}</li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
