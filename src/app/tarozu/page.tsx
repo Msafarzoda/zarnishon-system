@@ -46,6 +46,8 @@ export default async function ScalePage() {
     .select({
       id: weighTickets.id,
       serial: weighTickets.serial,
+      grossG: weighTickets.grossG,
+      tareG: weighTickets.tareG,
       netG: weighTickets.netG,
       status: weighTickets.status,
       farm: counterparties.name,

@@ -6,6 +6,7 @@ import { DomainError, gramsToKgString, kgStringToGrams } from "@/domain/units";
 import { netWeight } from "@/domain/weight";
 import { TRANSPORT_ORGS, normalisePlate } from "@/domain/plate";
 import { submit, drain } from "@/lib/offline/station-client";
+import { TicketProgress, waitingFor } from "@/components/ticket-progress";
 import { newClientUuid } from "@/lib/offline/outbox";
 import { useScale } from "@/lib/scale/use-scale";
 import { ScalePanel } from "@/components/scale-panel";
@@ -30,8 +31,8 @@ interface Props {
   season: number;
   awaitingTare: AwaitingTare[];
   recentlyWeighed: {
-    id: string; serial: string; netG: number | null; status: string;
-    farm: string; plate: string | null;
+    id: string; serial: string; grossG: number | null; tareG: number | null;
+    netG: number | null; status: string; farm: string; plate: string | null;
   }[];
   farms: { id: string; name: string; tin: string | null; place: string | null; phone: string | null }[];
   drivers: { id: string; fullName: string }[];
@@ -120,23 +121,41 @@ export function ScaleClient(props: Props) {
       )}
 
       {props.recentlyWeighed.length > 0 && (
-        <section className="card p-4">
+        <section className="card p-4 sm:p-5">
           <h2 className="mb-3 text-sm font-semibold text-ink-soft">
             {tg.ticket.title} — {tg.dashboard.cottonReceived}
           </h2>
-          <ul className="divide-y divide-paper-line text-sm">
-            {props.recentlyWeighed.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 py-2">
-                <a href={`/borkhat/${t.id}`} className="font-mono text-brand hover:underline">
-                  {t.serial}
-                </a>
-                <span className="text-ink-soft">{t.farm}</span>
-                {t.plate && <span className="text-ink-faint">{t.plate}</span>}
-                <span className="ms-auto tabular font-semibold">
-                  {t.netG !== null ? `${gramsToKgString(t.netG, 1)} ${tg.common.kg}` : "—"}
-                </span>
-              </li>
-            ))}
+          <ul className="divide-y divide-paper-line">
+            {props.recentlyWeighed.map((t) => {
+              const still = waitingFor(t);
+              return (
+                <li key={t.id} className="py-2.5">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="font-medium">{t.farm}</span>
+                    <a href={`/borkhat/${t.id}`}
+                       className="font-mono text-sm text-brand hover:underline">
+                      {t.serial}
+                    </a>
+                    {t.plate && <span className="text-sm text-ink-faint">{t.plate}</span>}
+                    <span className="ms-auto tabular text-lg font-bold">
+                      {t.netG !== null ? gramsToKgString(t.netG, 1) : "—"}
+                      <span className="ms-1 text-sm font-medium text-ink-soft">
+                        {tg.common.kg}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <TicketProgress ticket={t} size="sm" />
+                    {/* A finished ticket says so; an unfinished one says what it needs. */}
+                    {still && (
+                      <span className="text-xs text-warn">
+                        {tg.gate.waitingFor}: {still}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -533,7 +552,10 @@ function TareList({
 
   if (tickets.length === 0) {
     return (
-      <div className="card p-8 text-center text-ink-faint">{tg.gate.awaitingTare}: 0</div>
+      <div className="card p-10 text-center">
+        <p className="text-ink-faint">{tg.gate.awaitingTare}: 0</p>
+        <p className="mt-2 text-sm text-ink-soft">{tg.scale.noTrucksWaiting}</p>
+      </div>
     );
   }
 
@@ -617,20 +639,40 @@ function TareCard({
     }
   }
 
+  const stage = {
+    grossG: ticket.grossG,
+    tareG: null,
+    netG: null,
+    status: "OPEN",
+  };
+
   return (
-    <div className="card overflow-hidden">
-      <button onClick={onOpen} className="flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-paper">
-        <span className="font-mono text-brand">{ticket.serial}</span>
-        <span className="font-medium">{ticket.farm}</span>
-        {ticket.plate && <span className="text-ink-faint text-sm">{ticket.plate}</span>}
-        {ticket.batchNumber !== null && (
-          <span className="badge bg-paper text-ink-soft">
-            {tg.ticket.batch} {ticket.batchNumber}
+    <div className={`card overflow-hidden ${open ? "ring-2 ring-brand/30" : ""}`}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full px-4 py-3 text-start transition-colors hover:bg-paper"
+      >
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-lg font-semibold">{ticket.farm}</span>
+          <span className="font-mono text-sm text-brand">{ticket.serial}</span>
+          {ticket.plate && <span className="text-sm text-ink-soft">{ticket.plate}</span>}
+          {ticket.driver && <span className="text-sm text-ink-faint">{ticket.driver}</span>}
+          {ticket.batchNumber !== null && (
+            <span className="badge bg-paper text-ink-soft">
+              {tg.ticket.batch} {ticket.batchNumber}
+            </span>
+          )}
+          {/* How long this truck has been on site. A load waiting hours is a problem
+              somebody should be looking at. */}
+          <span className="ms-auto text-sm text-ink-faint">
+            {tg.gate.onSiteSince} {waited(ticket.createdAt)}
           </span>
-        )}
-        <span className="ms-auto tabular text-ink-soft">
-          {tg.ticket.gross} {ticket.grossG !== null ? gramsToKgString(ticket.grossG, 0) : "—"} {tg.common.kg}
-        </span>
+        </div>
+
+        <div className="mt-2">
+          <TicketProgress ticket={stage} />
+        </div>
       </button>
 
       {open && (
@@ -682,4 +724,13 @@ function TareCard({
       )}
     </div>
   );
+}
+
+
+/** How long a truck has been on site, in the coarse terms an operator thinks in. */
+function waited(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 60) return `${minutes} ${tg.common.minutesShort}`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} ${tg.common.hoursShort} ${minutes % 60} ${tg.common.minutesShort}`;
 }
