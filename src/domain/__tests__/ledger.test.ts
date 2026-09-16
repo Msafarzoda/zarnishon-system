@@ -16,8 +16,8 @@ import {
 const ACC = {
   cashAccountId: "cash",
   cottonPurchaseAccountId: "cotton",
-  farmPayableAccountId: "payable-bilol",
-  advanceAccountId: "advance-bilol",
+  farmPayableAccountId: "payable-farm",
+  advanceAccountId: "advance-farm",
   seedRevenueAccountId: "seed",
 };
 
@@ -53,7 +53,7 @@ describe("cotton payment posting", () => {
   it("debits the purchase and credits what the farm may come and collect", () => {
     const tx = buildCottonPaymentTx(settlement, ACC, "Борхат T1-2026-000046");
     expect(balanceOf(tx.entries, "cotton")).toBe(785_813);
-    expect(balanceOf(tx.entries, "payable-bilol")).toBe(-785_813);
+    expect(balanceOf(tx.entries, "payable-farm")).toBe(-785_813);
     expect(tx.entries).toHaveLength(2);
   });
 
@@ -71,8 +71,8 @@ describe("cotton payment posting", () => {
     });
     const tx = buildCottonPaymentTx(withAdvance, ACC, "Борхат T1-2026-000046");
     expect(balanceOf(tx.entries, "cotton")).toBe(785_813);
-    expect(balanceOf(tx.entries, "payable-bilol")).toBe(-485_813);
-    expect(balanceOf(tx.entries, "advance-bilol")).toBe(-300_000);
+    expect(balanceOf(tx.entries, "payable-farm")).toBe(-485_813);
+    expect(balanceOf(tx.entries, "advance-farm")).toBe(-300_000);
   });
 
   it("emits no payable entry at all when the advance swallows the whole ticket", () => {
@@ -83,8 +83,8 @@ describe("cotton payment posting", () => {
       outstandingAdvanceD: 1_000_000,
     });
     const tx = buildCottonPaymentTx(swallowed, ACC, "full offset");
-    expect(tx.entries.map((e) => e.accountId).sort()).toEqual(["advance-bilol", "cotton"]);
-    expect(balanceOf(tx.entries, "payable-bilol")).toBe(0);
+    expect(tx.entries.map((e) => e.accountId).sort()).toEqual(["advance-farm", "cotton"]);
+    expect(balanceOf(tx.entries, "payable-farm")).toBe(0);
   });
 
   it("refuses to recover an advance without a farm advance account", () => {
@@ -97,7 +97,7 @@ describe("cotton payment posting", () => {
     expect(() =>
       buildCottonPaymentTx(
         withAdvance,
-        { cottonPurchaseAccountId: "cotton", farmPayableAccountId: "payable-bilol" },
+        { cottonPurchaseAccountId: "cotton", farmPayableAccountId: "payable-farm" },
         "no advance account",
       ),
     ).toThrow(/no advance account/);
@@ -116,8 +116,8 @@ describe("cotton payment posting", () => {
 
 describe("cash disbursement", () => {
   it("takes the money out of the drawer and off what we owe", () => {
-    const tx = buildDisbursementTx(200_000, ACC, "х-д Билол-Б");
-    expect(balanceOf(tx.entries, "payable-bilol")).toBe(200_000);
+    const tx = buildDisbursementTx(200_000, ACC, "х-д Намуна");
+    expect(balanceOf(tx.entries, "payable-farm")).toBe(200_000);
     expect(balanceOf(tx.entries, "cash")).toBe(-200_000);
   });
 
@@ -135,7 +135,7 @@ describe("cash disbursement", () => {
     const payout = buildDisbursementTx(200_000, ACC, "part payment");
     const both: DraftEntry[] = [...settlementTx.entries, ...payout.entries];
 
-    expect(balanceOf(both, "payable-bilol")).toBe(-400_000); // still owed
+    expect(balanceOf(both, "payable-farm")).toBe(-400_000); // still owed
     expect(balanceOf(both, "cash")).toBe(-200_000); // only what was handed over
     expect(balanceOf(both, "cotton")).toBe(600_000);
   });
@@ -152,14 +152,14 @@ describe("cash disbursement", () => {
 describe("advances and seed sales", () => {
   it("moves cash out of the drawer and onto the farm's account", () => {
     const tx = buildAdvanceIssuedTx(500_000, ACC, "Қарз барои чиниши пахта");
-    expect(balanceOf(tx.entries, "advance-bilol")).toBe(500_000);
+    expect(balanceOf(tx.entries, "advance-farm")).toBe(500_000);
     expect(balanceOf(tx.entries, "cash")).toBe(-500_000);
   });
 
   it("records a cash repayment in the opposite direction", () => {
     const tx = buildAdvanceRepaidCashTx(200_000, ACC, "repayment");
     expect(balanceOf(tx.entries, "cash")).toBe(200_000);
-    expect(balanceOf(tx.entries, "advance-bilol")).toBe(-200_000);
+    expect(balanceOf(tx.entries, "advance-farm")).toBe(-200_000);
   });
 
   it("puts seed money into the same drawer the factory pays farmers from", () => {
@@ -178,7 +178,7 @@ describe("reversal", () => {
   it("mirrors every entry and demands a reason", () => {
     const original = buildAdvanceIssuedTx(500_000, ACC, "Қарз");
     const reversal = buildReversalTx(original, "хатои хазинадор");
-    expect(balanceOf(reversal.entries, "advance-bilol")).toBe(-500_000);
+    expect(balanceOf(reversal.entries, "advance-farm")).toBe(-500_000);
     expect(balanceOf(reversal.entries, "cash")).toBe(500_000);
     expect(reversal.memo).toContain("хатои хазинадор");
     expect(() => buildReversalTx(original, "   ")).toThrow(/requires a reason/);
@@ -188,7 +188,7 @@ describe("reversal", () => {
     const original = buildAdvanceIssuedTx(500_000, ACC, "Қарз");
     const reversal = buildReversalTx(original, "duplicate entry");
     const all: DraftEntry[] = [...original.entries, ...reversal.entries];
-    for (const account of ["cash", "advance-bilol"]) {
+    for (const account of ["cash", "advance-farm"]) {
       expect(balanceOf(all, account)).toBe(0);
     }
   });
@@ -222,16 +222,16 @@ describe("cash on hand is always derived", () => {
     entries.push(...buildCottonPaymentTx(s, ACC, "Борхат №46").entries);
     // settling moved no cash — the drawer is still untouched by борхат №46
     expect(balanceOf(entries, "cash")).toBe(5_500_000);
-    expect(balanceOf(entries, "payable-bilol")).toBe(-485_813);
+    expect(balanceOf(entries, "payable-farm")).toBe(-485_813);
 
     // the farm collects it, and only now does the cash leave
-    entries.push(...buildDisbursementTx(485_813, ACC, "Пардохт — Билол-Б").entries);
+    entries.push(...buildDisbursementTx(485_813, ACC, "Пардохт — Намуна").entries);
 
     // 2 000 000 − 500 000 + 4 000 000 − 485 813
     expect(balanceOf(entries, "cash")).toBe(5_014_187);
-    expect(balanceOf(entries, "payable-bilol")).toBe(0);
+    expect(balanceOf(entries, "payable-farm")).toBe(0);
     // the farm took 5 000, 3 000 came back as cotton -> 2 000 still outstanding
-    expect(balanceOf(entries, "advance-bilol")).toBe(200_000);
+    expect(balanceOf(entries, "advance-farm")).toBe(200_000);
     // and the books as a whole are flat
     expect(entries.reduce((n, e) => n + e.amountD, 0)).toBe(0);
   });

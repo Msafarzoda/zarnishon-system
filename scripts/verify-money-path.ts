@@ -36,10 +36,10 @@ const ok = (label: string) => {
 async function main() {
   const [cashier] = await db.select().from(s.users).where(eq(s.users.username, "hazinador"));
   const [labTech] = await db.select().from(s.users).where(eq(s.users.username, "laborant"));
-  const [weigher] = await db.select().from(s.users).where(eq(s.users.username, "salimov"));
-  const [owner] = await db.select().from(s.users).where(eq(s.users.username, "safarov"));
+  const [weigher] = await db.select().from(s.users).where(eq(s.users.username, "tarozubon"));
+  const [owner] = await db.select().from(s.users).where(eq(s.users.username, "sohib"));
   const [scale] = await db.select().from(s.stations).where(eq(s.stations.code, "T1"));
-  const [farm] = await db.select().from(s.counterparties).where(eq(s.counterparties.tin, "5830076707"));
+  const [farm] = await db.select().from(s.counterparties).where(eq(s.counterparties.tin, "0000000001"));
   const [batch] = await db
     .select().from(s.batches)
     .where(and(eq(s.batches.season, SEASON), eq(s.batches.number, 101)));

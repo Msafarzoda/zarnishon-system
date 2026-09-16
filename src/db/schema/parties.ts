@@ -19,10 +19,10 @@ export const counterparties = pgTable(
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     kind: counterpartyKind("kind").notNull(),
-    /** Name as written on the waybill, e.g. "х-д Билол-Б". */
+    /** Name as written on the waybill, e.g. "х-д Намуна". */
     name: text("name").notNull(),
     /**
-     * РЯМ / РМА / ИНН, e.g. "5830076707" — **the farm's identity**.
+     * РЯМ / РМА / ИНН, e.g. "0000000000" — **the farm's identity**.
      *
      * Names are written differently on different waybills, so a farm keyed by name
      * appears twice under two spellings and has its cotton, its advances and its balance

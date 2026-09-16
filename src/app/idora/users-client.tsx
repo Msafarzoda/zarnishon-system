@@ -274,7 +274,7 @@ function AddUserForm({ onDone }: { onDone: (message?: string) => void }) {
         <div>
           <label className="label" htmlFor="fullName">{tg.users.fullName}</label>
           <input id="fullName" name="fullName" required className="input"
-                 placeholder="Салимов Ҷ." />
+                 placeholder="Ном Насаб" />
         </div>
         <div>
           <label className="label" htmlFor="username">{tg.users.username}</label>

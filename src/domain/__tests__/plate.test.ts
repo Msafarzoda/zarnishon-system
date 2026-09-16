@@ -50,19 +50,19 @@ describe("normalisePlate", () => {
 
 describe("РМА — the farm's identity", () => {
   it("keeps only the digits, however it was written", () => {
-    expect(normaliseTin("5830076707")).toBe("5830076707");
-    expect(normaliseTin("583 007 6707")).toBe("5830076707");
-    expect(normaliseTin("583-007-6707")).toBe("5830076707");
-    expect(normaliseTin("РМА 5830076707")).toBe("5830076707");
+    expect(normaliseTin("1234567890")).toBe("1234567890");
+    expect(normaliseTin("123 456 7890")).toBe("1234567890");
+    expect(normaliseTin("123-456-7890")).toBe("1234567890");
+    expect(normaliseTin("РМА 1234567890")).toBe("1234567890");
   });
 
   it("treats the same number written three ways as one farm", () => {
-    const written = ["5830076707", "583 007 6707", "РМА: 583-007-6707"];
+    const written = ["1234567890", "123 456 7890", "РМА: 123-456-7890"];
     expect(new Set(written.map(normaliseTin)).size).toBe(1);
   });
 
   it("accepts a real number and rejects a placeholder", () => {
-    expect(isPlausibleTin("5830076707")).toBe(true);
+    expect(isPlausibleTin("1234567890")).toBe(true);
     expect(isPlausibleTin("000000000")).toBe(false);
     expect(isPlausibleTin("123")).toBe(false);
     expect(isPlausibleTin("")).toBe(false);

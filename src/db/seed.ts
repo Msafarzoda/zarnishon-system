@@ -1,10 +1,13 @@
 /**
- * Seeds a working factory and reproduces the two real documents supplied by the owner,
- * so the system can be checked against the paper it replaces:
+ * Seeds a working factory, with the shape of the two paper forms the system replaces —
+ * Борхат (Шакли махсус №1-пахта) and Форма №9-хл — so it can be checked end to end:
  *
- *   Борхат №46, Партия 101 — х-д Билол-Б (РЯМ 5830076707), Газел 22-60, Восиев Б.
- *                            Брутто 3015 кг / Тара 2380 кг / Нетто 635 кг
+ *   Борхат №46, Партия 101 — Брутто 3015 кг / Тара 2380 кг / Нетто 635 кг
  *   Форма №9-хл, партия 101 — влажность 9 %, засорённость 2 %
+ *
+ * **The names, tax numbers, plates and people here are invented.** Real farms are entered
+ * through the app, not committed to a repository: a хоҷагӣ's РЯМ is its tax identity and
+ * belongs to the farm, not to us.
  *
  * Run:  npm run db:push && npm run db:seed
  */
@@ -32,17 +35,33 @@ async function main() {
   if (!gate || !scale || !lab || !kassa) throw new Error("station seed failed");
 
   // ------------------------------------------------------------ users
-  // Names taken from the signatures on Борхат №46.
-  const pw = await hashPassword("zarnishon");
+  /**
+   * One password for every seeded account, and it must be given.
+   *
+   * It used to be a literal in this file, which meant the factory's real accounts were
+   * opened with a password published alongside the code. A seed that refuses to run
+   * without being told cannot leave that behind.
+   *
+   *   SEED_PASSWORD=... npm run db:seed
+   */
+  const seedPassword = process.env.SEED_PASSWORD;
+  if (!seedPassword || seedPassword.length < 8) {
+    throw new Error(
+      "SEED_PASSWORD муқаррар нашудааст. / Set SEED_PASSWORD (8+ characters) before seeding:\n" +
+        "  SEED_PASSWORD='...' npm run db:seed\n" +
+        "Баъд аз оғози кор онро дар /idora иваз кунед.",
+    );
+  }
+  const pw = await hashPassword(seedPassword);
   const [owner, weigher, labTech, cashier, guard, merch] = await db
     .insert(s.users)
     .values([
-      { username: "safarov", fullName: "Абдуғафор Сафаров", role: "owner", passwordHash: pw },
-      { username: "salimov", fullName: "Салимов Ҷ.", role: "weigher", passwordHash: pw },
+      { username: "sohib", fullName: "Соҳиби корхона", role: "owner", passwordHash: pw },
+      { username: "tarozubon", fullName: "Тарозубон", role: "weigher", passwordHash: pw },
       { username: "laborant", fullName: "Лаборант", role: "lab", passwordHash: pw },
       { username: "hazinador", fullName: "Хазинадор", role: "cashier", passwordHash: pw },
       { username: "posbon", fullName: "Посбон", role: "guard", passwordHash: pw },
-      { username: "sharipov", fullName: "Шарипов М.", role: "merchandiser", passwordHash: pw },
+      { username: "molshinos", fullName: "Молшинос", role: "merchandiser", passwordHash: pw },
     ])
     .returning();
   if (!owner || !weigher || !labTech || !cashier || !guard || !merch) {
@@ -93,21 +112,22 @@ async function main() {
   const [bilol] = await db
     .insert(s.counterparties)
     .values({
+      // Invented. Real farms are entered through the app.
       kind: "farm",
-      name: "х-д Билол-Б",
-      tin: "5830076707",
-      defaultLocation: "ч.Бустон",
+      name: "х-д Намуна",
+      tin: "0000000001",
+      defaultLocation: "ч.Намуна",
     })
     .returning();
   if (!bilol) throw new Error("counterparty seed failed");
 
   const [gazel] = await db
     .insert(s.vehicles)
-    .values({ plate: "22-60", model: "Газел 22-60", transportOrg: "Хусусӣ" })
+    .values({ plate: "0000 AA 00", model: "Газел", transportOrg: "Хусусӣ" })
     .returning();
   const [vosiev] = await db
     .insert(s.drivers)
-    .values({ fullName: "Восиев Баҳром" })
+    .values({ fullName: "Ронанда" })
     .returning();
   if (!gazel || !vosiev) throw new Error("vehicle/driver seed failed");
 
@@ -121,7 +141,7 @@ async function main() {
       { code: "OPENING", nameTg: "Бақияи ибтидоӣ", kind: "OPENING_BALANCE" },
       {
         code: `ADV-${bilol.id.slice(0, 8)}`,
-        nameTg: "Қарзи х-д Билол-Б",
+        nameTg: "Қарзи х-д Намуна",
         kind: "ADVANCE_RECEIVABLE",
         counterpartyId: bilol.id,
       },

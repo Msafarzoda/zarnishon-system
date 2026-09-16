@@ -59,12 +59,12 @@ function FarmForm() {
         <div>
           <label className="label" htmlFor="tin">{tg.ticket.tin}</label>
           <input id="tin" name="tin" required inputMode="numeric"
-                 className="input-number" placeholder="5830076707" />
+                 className="input-number" placeholder="0000000000" />
           <p className="mt-1 text-xs text-ink-faint">{tg.common.tinIsIdentity}</p>
         </div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="name">{tg.ticket.consignor}</label>
-          <input id="name" name="name" required className="input" placeholder="х-д Билол-Б" />
+          <input id="name" name="name" required className="input" placeholder="х-д Намуна" />
         </div>
         <div>
           <label className="label" htmlFor="place">{tg.ticket.loadingPlace}</label>
@@ -126,7 +126,7 @@ function DriverForm() {
         <div>
           <label className="label" htmlFor="fullName">{tg.ticket.driverHint}</label>
           <input id="fullName" name="fullName" required className="input"
-                 placeholder="Восиев Баҳром" />
+                 placeholder="Ном Насаб" />
         </div>
         <div>
           <label className="label" htmlFor="dphone">{tg.common.phone}</label>

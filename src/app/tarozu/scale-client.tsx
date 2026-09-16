@@ -311,8 +311,8 @@ function ArrivalForm({
             }))}
             addLabel={tg.scale.newFarm}
             fields={[
-              { name: "name", label: tg.ticket.consignor, placeholder: "х-д Билол-Б", required: true },
-              { name: "tin", label: `${tg.ticket.tin} (${tg.scale.tinHint})`, placeholder: "5830076707", inputMode: "numeric" },
+              { name: "name", label: tg.ticket.consignor, placeholder: "х-д Намуна", required: true },
+              { name: "tin", label: `${tg.ticket.tin} (${tg.scale.tinHint})`, placeholder: "0000000000", inputMode: "numeric" },
               { name: "place", label: tg.ticket.loadingPlace, placeholder: "ч.Бустон" },
               { name: "phone", label: tg.common.phone, placeholder: "+992 __ ___ __ __" },
             ]}
@@ -387,7 +387,7 @@ function ArrivalForm({
           options={driverList.map((d) => ({ value: d.id, label: d.fullName }))}
           addLabel={tg.scale.newDriver}
           fields={[
-            { name: "fullName", label: tg.ticket.driverHint, placeholder: "Восиев Баҳром", required: true },
+            { name: "fullName", label: tg.ticket.driverHint, placeholder: "Ном Насаб", required: true },
             { name: "phone", label: tg.ticket.driver, placeholder: "" },
           ]}
           onCreate={async (values) => {

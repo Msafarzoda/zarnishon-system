@@ -71,8 +71,8 @@ export async function createCounterparty(input: CreateCounterpartyInput) {
 
   /*
    * The same farm arriving under a second name. Returned rather than refused: the
-   * weighbridge must not stop because somebody typed «хочагии Билол» instead of
-   * «х-д Билол-Б» — the number says it is the same farm, so the existing record is used.
+   * weighbridge must not stop because somebody typed «хочагии Намуна» instead of
+   * «х-д Намуна» — the number says it is the same farm, so the existing record is used.
    */
   if (tin) {
     const [sameTin] = await db

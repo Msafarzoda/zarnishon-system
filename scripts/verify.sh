@@ -21,6 +21,9 @@ docker exec zarnishon-db psql -U zarnishon -d postgres -v ON_ERROR_STOP=1 \
   -c "CREATE DATABASE zarnishon_test OWNER zarnishon;" > /dev/null
 
 DATABASE_URL="$TEST_URL" npx drizzle-kit push --force > /dev/null
-DATABASE_URL="$TEST_URL" npx tsx src/db/seed.ts > /dev/null
+# The seed refuses to run without a password, so the checks supply a throwaway one. It
+# never reaches the factory's own database — this is a database built and dropped here.
+SEED_PASSWORD="${SEED_PASSWORD:-verify-only-password}" \
+  DATABASE_URL="$TEST_URL" npx tsx src/db/seed.ts > /dev/null
 
 DATABASE_URL="$TEST_URL" npx tsx scripts/verify-money-path.ts

@@ -177,7 +177,7 @@ payment is final unless explicitly reversed.
 ## 4. Step 3 — Payment (Пардохт)
 
 ### Price
-The price per kg is set **only by the owner** (Абдуғафор Сафаров), as effective-dated
+The price per kg is set **only by the owner** (соҳиби корхона), as effective-dated
 `price_quote` rows, optionally per variety/grade/class. Price is never entered by a cashier.
 
 **The price applied is the price in force on the date of payment — not the date of intake.**
@@ -360,7 +360,7 @@ not a policy note.
 ### One person holding several roles
 
 Decision of 15.09.2026, for the first season: **the factory is running the paper process
-and this system side by side**, and only one operator is entering data. Салимов Ҷ. holds
+and this system side by side**, and only one operator is entering data. тарозубон holds
 `weigher`, `lab`, `cashier` and `accountant` at once. The лаборант keeps writing Форма
 №9-хл by hand, the тарозубон takes the sheets and types them in.
 
@@ -373,7 +373,7 @@ about what is given up. With one person holding the scale, the lab and the cash 
 the system can no longer stop that person inventing a load and paying themselves for it.
 What still holds:
 
-- **Every record still says who made it.** The audit log names Салимов on the weighing,
+- **Every record still says who made it.** The audit log names Тарозубон on the weighing,
   the analysis and the payment, so the sequence is legible afterwards rather than hidden.
 - **The paper is the control.** During the parallel season the hand-written борхат and
   Форма №9-хл exist independently of anything typed, and the two can be compared. That
@@ -388,8 +388,8 @@ loosening the checks.
 ### The farm's identity is its РМА
 
 Decision of 15.09.2026: a хоҷагӣ is identified by its **tax number** (РМА / РЯМ / ИНН),
-not by its name. Names are written differently on different waybills — «х-д Билол-Б»,
-«хочагии Билол Б», «Билол» — and a farm that appears twice under two spellings has its
+not by its name. Names are written differently on different waybills — «х-д Намуна»,
+«хочагии Намуна Н», «Намуна» — and a farm that appears twice under two spellings has its
 cotton, its advances and its balance split across two records that nobody notices.
 
 So the РМА is unique across farms, required when a farm is created, and is what search
