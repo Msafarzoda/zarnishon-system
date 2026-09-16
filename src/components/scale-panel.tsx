@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { gramsToKgString } from "@/domain/units";
-import type { ScaleState } from "@/lib/scale/use-scale";
+import type { Weighbridge } from "@/lib/scale/use-weighbridge";
 import type { ScaleReading } from "@/domain/scale";
 import { tg } from "@/lib/i18n/tg";
 
@@ -40,7 +40,7 @@ export function ScalePanel({
   onConnect,
   allowSimulation,
 }: {
-  scale: ScaleState & { connect: () => Promise<void>; simulate: (kg: number) => void };
+  scale: Weighbridge;
   label: string;
   hint: string;
   onConnect?: () => void;
@@ -49,7 +49,10 @@ export function ScalePanel({
 }) {
   const { status, reading, settled } = scale;
 
-  if (status === "unsupported") {
+  // Only meaningful when this browser is the thing opening the port. With the server
+  // reading the scale, https is irrelevant and saying otherwise sends somebody chasing a
+  // certificate they do not need.
+  if (status === "unsupported" && scale.source !== "server") {
     // The two causes look the same to an operator and have completely different fixes.
     const insecure = scale.unsupportedReason === "insecure-origin";
     const localhostUrl = localhostEquivalent(scale.origin);
@@ -88,6 +91,19 @@ export function ScalePanel({
   }
 
   if (status === "disconnected" || status === "error") {
+    // With the server holding the port there is nothing for an operator to press: the
+    // question is whether the indicator is switched on and the cable is in, not whether
+    // somebody clicked Connect.
+    if (scale.source === "server") {
+      return (
+        <div className="rounded-lg border border-warn bg-amber-50 p-4">
+          <p className="font-medium text-warn">{tg.scale.serverScaleDown}</p>
+          <p className="mt-1 text-sm text-warn/90">{tg.scale.serverScaleDownHint}</p>
+          {scale.error && <p className="mt-2 text-sm text-alarm">{scale.error}</p>}
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-lg border border-paper-line bg-paper p-4">
         <p className="mb-3 font-medium">{tg.scale.notConnected}</p>
@@ -167,7 +183,7 @@ export function ScalePanel({
  * somebody compares these frames against the number on the indicator's own display. If
  * the weight here does not match the display, nothing else in the system can be trusted.
  */
-function Diagnostics({ scale }: { scale: ScaleState }) {
+function Diagnostics({ scale }: { scale: Weighbridge }) {
   const [open, setOpen] = useState(false);
   if (scale.frames.length === 0) return null;
 
@@ -207,9 +223,7 @@ function Diagnostics({ scale }: { scale: ScaleState }) {
  * capture button. It is off in production, and anything weighed while it runs is recorded
  * as hand-entered, never as a reading from the indicator.
  */
-function SimulateControls({
-  scale,
-}: { scale: ScaleState & { simulate: (kg: number) => void } }) {
+function SimulateControls({ scale }: { scale: Weighbridge }) {
   return (
     <div className="mt-3 border-t border-paper-line pt-3">
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">

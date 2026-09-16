@@ -8,7 +8,7 @@ import { TRANSPORT_ORGS, normalisePlate } from "@/domain/plate";
 import { submit, drain } from "@/lib/offline/station-client";
 import { TicketProgress, waitingFor } from "@/components/ticket-progress";
 import { newClientUuid } from "@/lib/offline/outbox";
-import { useScale } from "@/lib/scale/use-scale";
+import { useWeighbridge } from "@/lib/scale/use-weighbridge";
 import { ScalePanel } from "@/components/scale-panel";
 import { ManualWeight } from "@/components/manual-weight";
 import { tg } from "@/lib/i18n/tg";
@@ -49,7 +49,7 @@ export function ScaleClient(props: Props) {
   const router = useRouter();
   // One connection to the indicator for the whole screen — брутто and тара read the same
   // port, and opening it twice would fail.
-  const scale = useScale();
+  const scale = useWeighbridge();
   const [tab, setTab] = useState<"arrive" | "depart">(
     props.awaitingTare.length > 0 ? "depart" : "arrive",
   );
@@ -198,7 +198,7 @@ function ArrivalForm({
   season, farms, drivers, vehicles, batches, varieties, scale, allowSimulation,
   onNotice, onDone,
 }: Props & {
-  scale: ReturnType<typeof useScale>;
+  scale: ReturnType<typeof useWeighbridge>;
   onNotice: (n: Notice) => void;
   onDone: () => void;
 }) {
@@ -572,7 +572,7 @@ function TareList({
   tickets, scale, allowSimulation, onNotice, onDone,
 }: {
   tickets: AwaitingTare[];
-  scale: ReturnType<typeof useScale>;
+  scale: ReturnType<typeof useWeighbridge>;
   allowSimulation: boolean;
   onNotice: (n: Notice) => void;
   onDone: () => void;
@@ -610,7 +610,7 @@ function TareCard({
   ticket, scale, allowSimulation, open, onOpen, onNotice, onDone,
 }: {
   ticket: AwaitingTare;
-  scale: ReturnType<typeof useScale>;
+  scale: ReturnType<typeof useWeighbridge>;
   allowSimulation: boolean;
   open: boolean; onOpen: () => void;
   onNotice: (n: Notice) => void; onDone: () => void;
