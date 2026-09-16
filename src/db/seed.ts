@@ -276,7 +276,9 @@ async function main() {
     createdBy: labTech.id,
   });
 
-  console.log(`  ✓ 4 stations, 6 users (password: zarnishon)`);
+  // Never the password itself. It is the caller's, it is already in their hands, and a
+  // seed that prints it puts it in every log and every terminal scrollback it ever ran in.
+  console.log(`  ✓ 4 stations, 6 users (password: the SEED_PASSWORD you supplied)`);
   console.log(`  ✓ Партия 101, Борхат T1-${SEASON}-000046, нетто ${netG / 1000} кг`);
   console.log(`  ✓ Форма №9-хл: 9 % / 2 % -> тарҳ ${computed / 100} % (DRAFT, awaiting approval)`);
   console.log(`  ✓ Хазина: 200 000 сомонӣ, нарх 12.50 сомонӣ/кг`);
