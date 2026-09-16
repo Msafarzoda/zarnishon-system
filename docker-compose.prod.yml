@@ -6,6 +6,11 @@
 services:
   db:
     image: postgres:17-alpine
+    # Named explicitly: the backup script and the systemd unit both reach it with
+    # `docker exec zarnishon-db`, and compose's generated name depends on the directory
+    # the stack happens to live in. A backup that silently stops working because the
+    # folder was renamed is the worst kind.
+    container_name: zarnishon-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: zarnishon
@@ -24,6 +29,10 @@ services:
     expose:
       - "5432"
 
+  # Only when the app runs in Docker. With the indicator wired into the server the app
+  # runs under systemd instead (deploy/zarnishon.service), so that reading /dev/ttyUSB0
+  # needs a group membership rather than a device mapping that changes every time the
+  # adapter re-enumerates.
   app:
     build: .
     restart: unless-stopped
