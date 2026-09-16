@@ -74,7 +74,23 @@ export async function signIn(
   jar.set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    /**
+     * Secure when the app is served over https, and only then.
+     *
+     * It used to key off NODE_ENV, which is wrong for this factory: the server runs in
+     * production **over plain http on a private LAN**, deliberately, because it reads the
+     * weighbridge indicator itself and no browser needs a serial port. A Secure cookie is
+     * simply never sent over http, so every page loaded — the redirect carries the
+     * session server-side — and every `fetch()` afterwards arrived with no cookie at all.
+     *
+     * The weighbridge asked the server whether it had a scale, got 401, concluded it had
+     * none, and told the operator to go and find an HTTPS certificate it did not need.
+     * A whole afternoon's symptom from one flag.
+     *
+     * `ALLOW_INSECURE` is the same flag that already says "http here is intended, not an
+     * oversight" — see server.mjs. Where https *is* in use the cookie is Secure as before.
+     */
+    secure: process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE !== "1",
     path: "/",
     maxAge: TTL_MS / 1000,
   });
