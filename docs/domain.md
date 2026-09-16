@@ -397,11 +397,147 @@ matches first. A farm that delivered once three seasons ago is found by typing i
 
 ---
 
-## 7. Out of phase 1 (designed for, not yet built)
+## 7. Phase 2 — Ginning, outputs and stock
 
-Step 4+ — the schema reserves these and the mass-balance model assumes them:
-- Warehouse/bunt stock movements and ginning (`production_run`)
-- Lint bale press output per batch (`bale`)
-- Cottonseed inventory and sales to oil factories
-- Outbound weighing of seed trucks (empty-in → loaded-out, mirror of intake)
-- Seed sale proceeds posting into the same cash ledger
+Recorded 16.09.2026 from the owner's description. Not yet built; this is the contract the
+building will follow, the way §2–§4 were settled before the intake was written.
+
+### The shape of it
+
+Cotton goes in one side of the factory and four things come out of the other:
+
+```
+                    ┌──────────────┐
+  пахта  ──────────▶│   ЗАВОД      │──────▶  чигит   ~57 %   sold to oil factories
+  (from a бунт)     │  (ginning)   │──────▶  кип      ~33 %   pressed bales, sold at
+                    │              │                          the end of the season
+                    │              │──────▶  улюк      ~1 %   sold, or fed back through
+                    └──────────────┘──────▶  пучоқ    ~9 %   trash: leaves, dust, waste
+```
+
+The owner's figures: чигит 56–58 %, улюк about 1 %, bales 210–215 kg each. Lint at about
+33 % makes those add to 100, which is what a working gin looks like.
+
+### The mass balance is the whole control
+
+```
+пахтаи фиристодашуда  =  чигит + кип + улюк + пучоқ + талафот
+```
+
+**This is the anti-fraud control for the factory**, and it is a different one from
+everything in §2–§4. Those protect a farmer from being underpaid by a kilogram at a time.
+This protects the factory from losing a tonne at a time — and lint is the valuable output,
+so a few tonnes of it leaving quietly is worth more than every trick a weighbridge
+operator could manage in a season.
+
+It only works if **what goes in is weighed**. Cotton is weighed at intake and paid for, but
+nothing currently records the weight fed into the gin, and without that there is no
+equation — only a pile of outputs that could be any size.
+
+#### Cotton dries in the бунт, and that is not theft
+
+A farm is paid for нетто at intake, at 9 % moisture. Three weeks later that cotton goes
+into the gin weighing less, because some of it was water. A balance that compares outputs
+against *intake* нетто therefore shows a shortfall every single time, on an honest run.
+
+That is worse than no check at all: a warning that is always wrong is a warning everybody
+learns to ignore, and it will still be ignored on the day it is right. Two ways out, and
+the owner picks one:
+
+1. **Weigh at the gin mouth.** The cotton going in is weighed, and the balance is exact.
+2. **A moisture-loss allowance**, set by the owner like the deduction norms, applied
+   between intake weight and expected input.
+
+(1) is the honest one. (2) is the one that needs no new scale.
+
+#### Улюк must not be counted twice
+
+Улюк is sold, and is sometimes fed back through the machines. Cotton entering the gin is
+therefore either **primary** (from a бунт, bought from a farm) or **recycled** (улюк from
+an earlier run). Only primary counts towards yield: counting recycled улюк as input again
+inflates throughput and quietly breaks every percentage the balance depends on.
+
+### Production runs, not партия
+
+A партия is a lot of cotton in a бунт. The gin runs continuously and may be fed from more
+than one бунт in a shift, so outputs cannot honestly be attributed to a партия.
+
+The unit is a **run** (`production_run`) — a shift with a start, an end, and an operator.
+A run records what was consumed and what came out, and the balance is checked per run.
+Attribution to a партия is possible only when a run was fed from exactly one, and the
+system says which case it is rather than pretending.
+
+### Кип — bales are stock, not a flow
+
+Bales are pressed continuously and sold **at the end of the season**, so for most of the
+year they sit in a warehouse. They are the factory's largest asset in that period, and the
+question "how many кип do we have, and what are they worth" must be answerable at any
+moment without anybody counting them by hand.
+
+Each bale has:
+
+- a **serial**, unique for the season, printed as a barcode
+- its **weight**, from the bale scale
+- its **grade** (сорт), which is what it will be priced on
+- the **run** it came from — so a bad bale leads back to the cotton it was made from
+- a **location**, and a history of moves
+- a **state**: `IN_STOCK → SHIPPED → SOLD`, or `REPRESSED` when it goes back
+
+#### The barcode carries the serial and nothing else
+
+**Never the weight.** Weight lives in the database and is looked up by serial. A barcode
+containing the weight can be reprinted by anyone with a label printer, and a 213 kg bale
+then scans as 180 kg at the loading bay with nothing to contradict it.
+
+This is the same rule as §2's: the number comes from the scale and the record, never from
+something a person can retype.
+
+#### Weighing bales by hand, for now
+
+The bale scale is mechanical, so the weight is typed on a tablet at the press. That is a
+hand-entered weight, which §2 otherwise forbids, and it is the factory's new weak point:
+213 entered as 203, ten bales a day, is a hundred kilograms of lint a day.
+
+Per bale this cannot be caught. What catches it is the **mass balance in aggregate** — a
+run whose bales weigh less than its cotton can account for. Until a digital scale is
+fitted the controls are:
+
+- a plausible range (a bale far outside 180–240 kg is refused, not saved)
+- every bale weight marked `source: manual`, like any typed weight
+- the run's balance, which is where a systematic shortfall shows up
+
+### Selling — three products, one ledger
+
+Чигит, кип and улюк are all sold. Each sale posts into the same cash ledger as §4, so cash
+on hand stays a single derived number:
+
+```
+Dr CASH (or RECEIVABLE)     amount
+  Cr SALES_REVENUE                   amount
+```
+
+#### Outbound weighing is the mirror of intake
+
+A чигит truck arrives **empty**: ТАРА first, load, then БРУТТО. Intake is the other way
+round — БРУТТО on arrival, ТАРА after unloading. The ticket state machine in §4 only
+allows gross-then-tare and must learn both directions.
+
+Bales are not weighed this way. A long trailer cannot be brutto/tara'd usefully, so a
+**shipment is the sum of the bales scanned onto it** — which is the point of giving each
+bale a weight and a barcode in the first place.
+
+### Still to decide
+
+Written down because building on a guess is how a system ends up lying:
+
+- **Weigh at the gin mouth, or a moisture allowance?** Everything above depends on it.
+- **What yield range is normal**, so a run outside it can be flagged? The figures here are
+  the owner's, but as targets, not as measured tolerances.
+- **Is there a linter?** Many gins take a second, shorter fibre off the seed and sell it
+  separately. Not mentioned; if it exists it is a fifth output and changes the balance.
+- **Is 210–215 kg the lint alone, or with the wrapping and ties?**
+- **Is пучоқ sold, or dumped?** Either way it is mass to account for.
+- **Who records the bales** — the press operator, or молшинос? It is a role that does not
+  exist yet.
+
+---
