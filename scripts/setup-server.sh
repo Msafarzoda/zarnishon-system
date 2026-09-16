@@ -190,10 +190,22 @@ ENV_FILE="$APP_DIR/.env.production"
 if [ -f "$ENV_FILE" ]; then
   ok ".env.production already exists — left alone"
 else
-  # Read straight from the kernel's random pool rather than depending on any one tool
-  # being installed. These are written once and never shown: a password somebody typed,
-  # or that appeared in a terminal, is a password somebody knows.
-  rand() { tr -dc 'a-f0-9' < /dev/urandom | head -c "${1:-32}"; }
+  # Written once and never shown: a password somebody typed, or that appeared in a
+  # terminal, is a password somebody knows.
+  #
+  # Not `tr -dc ... < /dev/urandom | head -c N`. That reads for ever and relies on `head`
+  # closing the pipe to stop it — which sends `tr` a SIGPIPE, makes the pipeline exit
+  # non-zero, and under `set -euo pipefail` silently kills this script. It did exactly
+  # that, leaving a half-configured machine and a log that simply stopped.
+  rand() {
+    local n="${1:-32}"
+    if command -v openssl > /dev/null; then
+      openssl rand -hex "$((n / 2))"
+    else
+      # Reads a fixed number of bytes and stops on its own, so nothing is ever signalled.
+      od -An -tx1 -N "$((n / 2))" /dev/urandom | tr -d " \n"
+    fi
+  }
   DB_PW="$(rand 32)"
   cat > "$ENV_FILE" <<ENVEOF
 # Written by scripts/setup-server.sh. Secrets generated on this machine, never published.
