@@ -18,8 +18,10 @@ export interface ResolvedPrice {
 export async function resolvePriceAt(
   at: Date,
   varietyId: string | null,
+  /** Pass the transaction handle when called inside one. See balances.ts on why. */
+  x: Pick<typeof db, "select"> = db,
 ): Promise<ResolvedPrice> {
-  const rows = await db
+  const rows = await x
     .select()
     .from(priceQuotes)
     .where(

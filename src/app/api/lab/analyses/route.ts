@@ -13,6 +13,7 @@ const schema = z.object({
   moistureBp: z.number().int().min(0).max(10_000),
   trashBp: z.number().int().min(0).max(10_000),
   storageNote: z.string().max(200).optional(),
+  analysedBy: z.string().max(120).optional(),
   sampledAt: z.string().datetime().optional(),
 }).refine((v) => !v.ticketId !== !v.batchId, {
   message: "Exactly one of ticketId or batchId must be given",

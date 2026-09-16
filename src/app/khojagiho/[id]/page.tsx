@@ -85,7 +85,7 @@ export default async function FarmAccountPage({
           </section>
         )}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Tile
             label={tg.account.delivered}
             value={kg(s.deliveredG)}
@@ -97,6 +97,14 @@ export default async function FarmAccountPage({
           />
           <Tile label={tg.account.cashPaid} value={som(s.cashPaidD)}
                 hint={`${tg.account.grossPaid}: ${som(s.grossPaidD)}`} />
+          {/* Settled at an agreed price and not yet handed over — a debt, not an estimate.
+              The tile beside it values cotton that has not been settled at all. */}
+          <Tile
+            label={tg.account.owedToFarm}
+            value={som(s.owedToFarmD)}
+            hint={s.owedToFarmD > 0 ? tg.cash.settledNotPaid : undefined}
+            tone={s.owedToFarmD > 0 ? "warn" : undefined}
+          />
           <Tile
             label={tg.account.owedWeight}
             value={kg(s.unpaidPayableG)}

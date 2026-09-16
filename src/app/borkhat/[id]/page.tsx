@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { and, desc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -12,7 +12,7 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { currentUser } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { gramsToKgString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { PrintButton } from "./print-button";
@@ -33,8 +33,10 @@ export const dynamic = "force-dynamic";
 const CONSIGNEE = 'ЧДММ "ЗАРНИШОН"';
 
 export default async function TicketPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await currentUser();
-  if (!user) redirect("/vorud");
+  // The Борхат is the shared document: the guard holds one copy, the factory another.
+  await requirePageRole(
+    "guard", "weigher", "lab", "merchandiser", "cashier", "accountant", "owner", "admin",
+  );
 
   const { id } = await params;
 

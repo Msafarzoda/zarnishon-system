@@ -22,10 +22,24 @@ export interface CurrentUser {
   id: string;
   username: string;
   fullName: string;
+  /** The job this person is called by, and where they land after signing in. */
   role: Role;
+  /**
+   * Every role this person holds — the primary one plus any extras.
+   *
+   * One operator runs the scale, the lab and the cash desk during the parallel season, so
+   * a permission check that only looked at `role` would lock them out of two thirds of
+   * their own job. Every check in this module tests this list. docs/domain.md §6.
+   */
+  roles: Role[];
   stationId: string | null;
   stationCode: string | null;
   stationName: string | null;
+}
+
+/** Whether this user holds any of `allowed`, counting extra roles. */
+export function hasRole(user: CurrentUser, allowed: readonly Role[]): boolean {
+  return user.roles.some((r) => allowed.includes(r));
 }
 
 export async function signIn(
@@ -41,8 +55,10 @@ export async function signIn(
   if (!user) return null;
   if (!(await verifyPassword(password, user.passwordHash))) return null;
 
-  // Refuse the sign-in rather than let the shift start in a state that cannot work.
-  if (needsStation(user.role as Role) && !stationId) {
+  // Refuse the sign-in rather than let the shift start in a state that cannot work. One
+  // operator holding several roles needs a station if any of them works at one.
+  const held = [user.role as Role, ...((user.extraRoles ?? []) as Role[])];
+  if (held.some(needsStation) && !stationId) {
     throw new AuthError("STATION_REQUIRED");
   }
 
@@ -84,6 +100,7 @@ export async function currentUser(): Promise<CurrentUser | null> {
       username: users.username,
       fullName: users.fullName,
       role: users.role,
+      extraRoles: users.extraRoles,
       isActive: users.isActive,
       stationId: sessions.stationId,
       stationCode: stations.code,
@@ -96,11 +113,14 @@ export async function currentUser(): Promise<CurrentUser | null> {
     .limit(1);
 
   if (!row || !row.isActive) return null;
+  const primary = row.role as Role;
   return {
     id: row.id,
     username: row.username,
     fullName: row.fullName,
-    role: row.role as Role,
+    role: primary,
+    // The primary role first, then extras, with no duplicates.
+    roles: [primary, ...((row.extraRoles ?? []) as Role[]).filter((r) => r !== primary)],
     stationId: row.stationId,
     stationCode: row.stationCode,
     stationName: row.stationName,
@@ -117,7 +137,7 @@ export async function requireRole(...allowed: Role[]): Promise<CurrentUser> {
   if (!user) throw new AuthError("NOT_SIGNED_IN");
   // The owner may look at anything, but is not granted operational roles by this check;
   // screens that move money list `owner` explicitly when he is allowed to act.
-  if (!allowed.includes(user.role) && !(user.role === "admin" && allowed.includes("admin"))) {
+  if (!hasRole(user, allowed)) {
     throw new AuthError("FORBIDDEN");
   }
   return user;
@@ -143,7 +163,22 @@ export class AuthError extends Error {
   }
 }
 
-/** Which screen a role lands on after signing in. */
+/**
+ * Where this person lands after signing in.
+ *
+ * Somebody holding more than one operational job goes to the work board, which shows the
+ * whole line, rather than to whichever single station happens to be their primary role —
+ * they would only have to navigate away from it. docs/domain.md §6.
+ */
+export function homeFor(user: Pick<CurrentUser, "role" | "roles">): string {
+  const operational = user.roles.filter((r) =>
+    (["weigher", "lab", "cashier", "merchandiser"] as Role[]).includes(r),
+  );
+  if (operational.length > 1) return "/kor";
+  return homePathFor(user.role);
+}
+
+/** Which screen a single role lands on after signing in. */
 export function homePathFor(role: Role): string {
   switch (role) {
     case "guard":
@@ -175,8 +210,21 @@ export function homePathFor(role: Role): string {
 export async function requirePageRole(...allowed: Role[]): Promise<CurrentUser> {
   const user = await currentUser();
   if (!user) redirect("/vorud");
-  if (!allowed.includes(user.role) && !(user.role === "admin" && allowed.includes("admin"))) {
+  if (!hasRole(user, allowed)) {
     redirect("/dastrasi");
   }
   return user;
+}
+
+/**
+ * Whether this user may *act* on a screen, as opposed to merely read it.
+ *
+ * The owner sees everything and the accountant reads everything — but neither weighs a
+ * truck, signs off an analysis or hands over cash. Letting them open the operational
+ * screens read-only keeps oversight possible without putting either of them inside the
+ * money path. The API enforces the same split independently, so a control that leaked
+ * onto the page would still be refused.
+ */
+export function canOperate(user: CurrentUser, operators: readonly Role[]): boolean {
+  return hasRole(user, operators);
 }

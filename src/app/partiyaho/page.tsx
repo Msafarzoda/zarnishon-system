@@ -6,7 +6,7 @@ import {
   varieties,
   weighTickets,
 } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { bpToPercentString, gramsToKgString } from "@/domain/units";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
@@ -74,7 +74,7 @@ export default async function BatchesPage() {
       .orderBy(asc(storageLocations.code)),
   ]);
 
-  const canManage = user.role === "merchandiser" || user.role === "owner" || user.role === "admin";
+  const canManage = canOperate(user, ["merchandiser", "owner", "admin"]);
 
   return (
     <Shell user={user} title={`${tg.nav.batches} — ${tg.app.season}-${season}`}>

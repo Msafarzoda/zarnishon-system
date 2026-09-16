@@ -21,8 +21,8 @@ interface GateTicket {
 }
 
 export function GateClient({
-  onSite, departedTodayCount,
-}: { onSite: GateTicket[]; departedTodayCount: number }) {
+  onSite, departedTodayCount, readOnly,
+}: { onSite: GateTicket[]; departedTodayCount: number; readOnly?: boolean }) {
   const router = useRouter();
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
@@ -62,6 +62,7 @@ export function GateClient({
             <GateRow
               key={t.id}
               ticket={t}
+              readOnly={readOnly}
               canLeave={readyToLeave.some((r) => r.id === t.id)}
               onNotice={setNotice}
               onDone={() => router.refresh()}
@@ -83,10 +84,11 @@ function Stat({ label, value, big }: { label: string; value: number; big?: boole
 }
 
 function GateRow({
-  ticket, canLeave, onNotice, onDone,
+  ticket, canLeave, readOnly, onNotice, onDone,
 }: {
   ticket: GateTicket;
   canLeave: boolean;
+  readOnly?: boolean;
   onNotice: (n: { tone: "ok" | "bad"; text: string }) => void;
   onDone: () => void;
 }) {
@@ -133,10 +135,12 @@ function GateRow({
         {ticket.tareG !== null && ` · ${tg.ticket.tare} ${gramsToKgString(ticket.tareG, 0)}`}
       </span>
 
-      {canLeave ? (
-        <button onClick={depart} disabled={busy} className="btn-primary">
+      {canLeave && !readOnly ? (
+        <button type="button" onClick={depart} disabled={busy} className="btn-primary">
           {busy ? tg.common.loading : tg.gate.depart}
         </button>
+      ) : canLeave ? (
+        <span className="badge bg-brand-light text-brand-dark">{tg.gate.departed}</span>
       ) : (
         <span className="badge bg-amber-100 text-warn">{tg.gate.awaitingTare}</span>
       )}

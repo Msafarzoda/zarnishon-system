@@ -9,8 +9,10 @@ import {
   somoniStringToDiram,
 } from "@/domain/units";
 import { settleTicket } from "@/domain/settlement";
+import { normaliseTin } from "@/domain/plate";
 import { submit } from "@/lib/offline/station-client";
 import { PriceTrendStat } from "@/components/price-trend";
+import { PayFarmPanel } from "./pay-farm-panel";
 import type { PriceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 
@@ -31,6 +33,46 @@ interface UnpaidTicket {
   priceDPerKg: number | null;
 }
 
+/** A farm as the cash desk needs to see it: cotton, credit and debt in one row. */
+export interface FarmRow {
+  id: string;
+  name: string;
+  tin: string | null;
+  phone: string | null;
+  /** Нетто standing in our warehouse, unsettled. */
+  inHandG: number;
+  /** Of that, what the lab has cleared — the only part sellable today. */
+  readyG: number;
+  readyTickets: number;
+  atLabG: number;
+  advanceD: number;
+  owedD: number;
+  maxAdvanceD: number;
+  headroomD: number;
+  overLent: boolean;
+}
+
+export interface OwedFarm {
+  id: string;
+  name: string;
+  phone: string | null;
+  owedD: number;
+  lastPaidAt: string | null;
+  settledAt: string | null;
+}
+
+export interface PayoutRow {
+  id: string;
+  receiptNo: string;
+  paidAt: string;
+  amountD: number;
+  balanceAfterD: number;
+  paymentId: string | null;
+  reversed: boolean;
+  farm: string;
+  cashier: string | null;
+}
+
 export interface PaidRow {
   paymentId: string;
   invoiceNo: string;
@@ -46,23 +88,41 @@ export interface PaidRow {
 }
 
 export function CashClient({
-  cashOnHandD, trend, priceError, tickets, farms, onScale, awaitingLab, history,
+  cashOnHandD, totalOwedD, owedFarms, payouts, trend, advanceRateDPerKg, priceError,
+  tickets, farms, onScale, awaitingLab, history, readOnly,
 }: {
   cashOnHandD: number;
+  /** Diram a farm may borrow per kg of cotton in hand. docs/domain.md §4. */
+  advanceRateDPerKg: number;
+  /** Everything the factory owes settled farms — the other half of what the drawer means. */
+  totalOwedD: number;
+  owedFarms: OwedFarm[];
+  payouts: PayoutRow[];
   trend: PriceTrend;
   priceError: string | null;
   tickets: UnpaidTicket[];
-  farms: { id: string; name: string }[];
+  farms: FarmRow[];
   /** Loads still upstream — shown so an empty list explains itself. */
   onScale: number;
   awaitingLab: number;
   history: PaidRow[];
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [showAdvance, setShowAdvance] = useState(false);
+  const [payingFarm, setPayingFarm] = useState<OwedFarm | null>(null);
+  /**
+   * Which way round the desk is working. `farm` is the ordinary case — somebody at the
+   * window asking for an amount — so it leads; `ticket` stays for settling one particular
+   * борхат, which is what happens when a farm brings exactly one load and wants it gone.
+   */
+  const [mode, setMode] = useState<"farm" | "ticket">("farm");
+  const [settlingFarmId, setSettlingFarmId] = useState<string | null>(null);
+
+  const settlingFarm = farms.find((f) => f.id === settlingFarmId) ?? null;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -80,8 +140,20 @@ export function CashClient({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label={tg.cash.cashOnHand} value={`${diramToSomoniString(cashOnHandD)} ${tg.common.somoni}`} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label={tg.cash.cashOnHand}
+          value={`${diramToSomoniString(cashOnHandD)} ${tg.common.somoni}`}
+          tone={totalOwedD > cashOnHandD ? "bad" : undefined}
+          hint={totalOwedD > cashOnHandD ? tg.cash.cashShort : undefined}
+        />
+        {/* What the drawer owes is as much a fact of the desk as what it holds. */}
+        <Stat
+          label={tg.cash.weOwe}
+          value={`${diramToSomoniString(totalOwedD)} ${tg.common.somoni}`}
+          hint={owedFarms.length > 0 ? `${owedFarms.length} × ${tg.ticket.consignor}` : undefined}
+          tone={totalOwedD > 0 ? "warn" : undefined}
+        />
         <PriceTrendStat trend={trend} />
         <Stat
           label={tg.dashboard.unpaidTickets}
@@ -108,29 +180,109 @@ export function CashClient({
       )}
 
       <div className="flex gap-2 flex-wrap">
+        <div className="flex rounded-lg border border-paper-line p-1">
+          <button
+            type="button"
+            onClick={() => { setMode("farm"); setSelectedId(null); }}
+            className={mode === "farm" ? "btn-primary" : "btn-ghost"}
+          >
+            {tg.cash.payByFarm}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode("ticket"); setSettlingFarmId(null); }}
+            className={mode === "ticket" ? "btn-primary" : "btn-ghost"}
+          >
+            {tg.cash.payByTicket}
+          </button>
+        </div>
         <input
           className="input flex-1 min-w-56"
-          placeholder={tg.cash.scanTicket}
+          placeholder={mode === "farm" ? tg.cash.chooseFarm : tg.cash.scanTicket}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
         />
-        <button className="btn-secondary" onClick={() => setShowAdvance((v) => !v)}>
-          {tg.advance.issue}
-        </button>
+        {!readOnly && (
+          <button type="button" className="btn-secondary"
+                  onClick={() => setShowAdvance((v) => !v)}>
+            {tg.advance.issue}
+          </button>
+        )}
       </div>
 
+      {/* Farms that settled and are still owed money. Only this list answers "who is
+          coming back for cash?", which before the split nobody could ask. */}
+      {owedFarms.length > 0 && (
+        <section className="card border-warn bg-amber-50/40 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-warn">
+            {tg.cash.owedFarms} — {diramToSomoniString(totalOwedD)} {tg.common.somoni}
+          </h2>
+          <ul className="space-y-2">
+            {owedFarms.map((f) => (
+              <li
+                key={f.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white px-3 py-2"
+              >
+                <span className="min-w-40 flex-1 font-medium">{f.name}</span>
+                {f.phone && <span className="tabular text-xs text-ink-faint">{f.phone}</span>}
+                <span className="tabular text-lg font-bold text-warn">
+                  {diramToSomoniString(f.owedD)} {tg.common.somoni}
+                </span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => { setPayingFarm(f); setSelectedId(null); }}
+                  >
+                    {tg.cash.payOut}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {payingFarm && !readOnly && (
+        <PayoutPanel
+          farm={payingFarm}
+          cashOnHandD={cashOnHandD}
+          onCancel={() => setPayingFarm(null)}
+          onNotice={setNotice}
+          onDone={() => { setPayingFarm(null); router.refresh(); }}
+        />
+      )}
+
       {history.length > 0 && <PaymentHistory history={history} />}
+      {payouts.length > 0 && <PayoutHistory payouts={payouts} />}
 
       {showAdvance && (
-        <AdvanceForm farms={farms} onNotice={setNotice}
+        <AdvanceForm farms={farms} advanceRateDPerKg={advanceRateDPerKg} onNotice={setNotice}
                      onDone={() => { setShowAdvance(false); router.refresh(); }} />
       )}
 
-      {selected && selected.priceDPerKg !== null ? (
+      {mode === "farm" && settlingFarm && !readOnly ? (
+        <PayFarmPanel
+          farm={settlingFarm}
+          cashOnHandD={cashOnHandD}
+          onCancel={() => setSettlingFarmId(null)}
+          onNotice={setNotice}
+          onDone={() => { setSettlingFarmId(null); router.refresh(); }}
+        />
+      ) : mode === "farm" ? (
+        <FarmChooser
+          farms={farms}
+          query={query}
+          advanceRateDPerKg={advanceRateDPerKg}
+          readOnly={readOnly}
+          onPick={setSettlingFarmId}
+        />
+      ) : selected && selected.priceDPerKg !== null && !readOnly ? (
         <PaymentPanel
           ticket={selected}
           priceDPerKg={selected.priceDPerKg}
+          cashOnHandD={cashOnHandD}
           onCancel={() => setSelectedId(null)}
           onNotice={setNotice}
           onDone={() => { setSelectedId(null); router.refresh(); }}
@@ -160,8 +312,9 @@ export function CashClient({
           {filtered.map((t) => (
             <li key={t.id}>
               <button
-                onClick={() => setSelectedId(t.id)}
-                disabled={t.priceDPerKg === null}
+                type="button"
+                onClick={() => !readOnly && setSelectedId(t.id)}
+                disabled={t.priceDPerKg === null || readOnly}
                 title={t.priceDPerKg === null ? tg.price.onlyOwner : undefined}
                 className="card flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-paper disabled:opacity-50"
               >
@@ -210,11 +363,15 @@ function valueToday(t: UnpaidTicket): number {
 
 function Stat({
   label, value, tone, hint,
-}: { label: string; value: string; tone?: "bad"; hint?: string }) {
+}: { label: string; value: string; tone?: "bad" | "warn"; hint?: string }) {
   return (
     <div className="card px-4 py-3">
       <div className="text-sm text-ink-soft">{label}</div>
-      <div className={`tabular text-2xl font-bold leading-tight ${tone === "bad" ? "text-alarm" : ""}`}>
+      <div
+        className={`tabular text-2xl font-bold leading-tight ${
+          tone === "bad" ? "text-alarm" : tone === "warn" ? "text-warn" : ""
+        }`}
+      >
         {value}
       </div>
       {hint && <div className="mt-1 text-xs text-ink-faint">{hint}</div>}
@@ -224,17 +381,27 @@ function Stat({
 
 // --------------------------------------------------------------------- payment
 
+/**
+ * Settling one борхат, and handing over however much of it the farm actually wants.
+ *
+ * The two are separate questions and the panel asks them in that order: this is what the
+ * cotton came to, and this is what leaves the drawer today. A farm owed 6 000 routinely
+ * takes 2 000, and some days the drawer cannot cover it either way — so the amount is a
+ * field with the full sum as its default, not a fixed consequence of pressing the button.
+ */
 function PaymentPanel({
-  ticket, priceDPerKg, onCancel, onNotice, onDone,
+  ticket, priceDPerKg, cashOnHandD, onCancel, onNotice, onDone,
 }: {
   ticket: UnpaidTicket;
   priceDPerKg: number;
+  cashOnHandD: number;
   onCancel: () => void;
   onNotice: (n: { tone: "ok" | "bad"; text: string }) => void;
   onDone: () => void;
 }) {
   const [copyCollected, setCopyCollected] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [amount, setAmount] = useState<string | null>(null); // null = the whole payable
 
   // The same pure function the server settles with, so what the cashier reads on screen
   // is what the ledger will record — not a second implementation that can drift.
@@ -245,14 +412,38 @@ function PaymentPanel({
     outstandingAdvanceD: ticket.advanceD,
   });
 
+  // `null` means "all of it" — the ordinary case, and the one that must not depend on a
+  // text field being parsed correctly.
+  let handOverD = s.cashPayableD;
+  let amountError: string | null = null;
+  if (amount !== null) {
+    if (amount.trim() === "") {
+      handOverD = 0;
+    } else {
+      try {
+        handOverD = somoniStringToDiram(amount);
+      } catch {
+        handOverD = 0;
+        amountError = tg.cash.amountNotValid;
+      }
+    }
+    if (handOverD > s.cashPayableD) amountError = tg.cash.moreThanTicket;
+    else if (handOverD > cashOnHandD) amountError = tg.cash.notEnoughCash;
+  }
+  const remainingD = s.cashPayableD - handOverD;
+
   async function pay() {
     setBusy(true);
     try {
-      const res = await submit<{ paymentId: string; invoiceNo: string; cashPayableD: number }>(
+      const res = await submit<{
+        paymentId: string; invoiceNo: string; cashPayableD: number;
+        disbursedD: number; farmBalanceD: number;
+      }>(
         "/api/payments",
         {
           ticketId: ticket.id,
           copyCollected,
+          disburseD: handOverD,
           paidAt: new Date().toISOString(),
         },
       );
@@ -270,8 +461,13 @@ function PaymentPanel({
       onNotice({
         tone: "ok",
         text:
-          `${ticket.farm} — ${diramToSomoniString(res.result.cashPayableD)} ${tg.common.somoni} ` +
-          `· ${res.result.invoiceNo}`,
+          `${ticket.farm} — ${tg.cash.paidNow} ${diramToSomoniString(res.result.disbursedD)} ` +
+          `${tg.common.somoni}` +
+          (res.result.farmBalanceD > 0
+            ? ` · ${tg.cash.remainingOwed} ${diramToSomoniString(res.result.farmBalanceD)} ` +
+              `${tg.common.somoni}`
+            : "") +
+          ` · ${res.result.invoiceNo}`,
       });
       // The farmer leaves with a receipt, the same way he leaves the scale with a Борхат.
       window.open(`/pardokht/${res.result.paymentId}`, "_blank");
@@ -316,7 +512,77 @@ function PaymentPanel({
         </div>
       </div>
 
-      {/* The stamped Copy C is the farmer's claim. Taking it in is part of paying. */}
+      {/* How much actually leaves the drawer. Full by default, because that is the common
+          case and it must not depend on anyone typing anything. */}
+      <div className="space-y-3 rounded-lg border border-paper-line p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="label mb-0">{tg.cash.handOverNow}</span>
+          <span className="text-xs text-ink-faint">
+            {tg.cash.cashOnHand} {diramToSomoniString(cashOnHandD)} {tg.common.somoni}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setAmount(null)}
+            className={amount === null ? "btn-primary" : "btn-secondary"}
+          >
+            {tg.cash.payFull} — {diramToSomoniString(s.cashPayableD)}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAmount("")}
+            className={amount === "" ? "btn-primary" : "btn-secondary"}
+          >
+            {tg.cash.payNothing}
+          </button>
+          {amount === null && (
+            <button type="button" className="btn-secondary"
+                    onClick={() => setAmount(diramToSomoniString(s.cashPayableD))}>
+              {tg.common.edit}
+            </button>
+          )}
+        </div>
+
+        {amount !== null && amount !== "" && (
+          <div>
+            <input
+              inputMode="decimal"
+              autoFocus
+              className="input-number text-2xl"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-ink-faint">{tg.cash.handOverHint}</p>
+          </div>
+        )}
+
+        {amount === "" && <p className="text-sm text-warn">{tg.cash.payLaterHint}</p>}
+
+        {amountError && <p role="alert" className="text-sm font-medium text-alarm">{amountError}</p>}
+
+        {!amountError && remainingD > 0 && (
+          <div className="flex flex-wrap gap-6 rounded-lg bg-amber-50 px-3 py-2">
+            <div>
+              <div className="text-xs text-warn">{tg.cash.paidNow}</div>
+              <div className="tabular text-xl font-bold text-warn">
+                {diramToSomoniString(handOverD)} {tg.common.somoni}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-warn">{tg.cash.remainingOwed}</div>
+              <div className="tabular text-xl font-bold text-warn">
+                {diramToSomoniString(remainingD)} {tg.common.somoni}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* The stamped Copy C is the farmer's claim. Taking it in is part of settling —
+          including when no cash changes hands, which is why the receipt then becomes the
+          farm's proof of what it is still owed. */}
       <label className="flex items-start gap-3 rounded-lg border border-paper-line p-3">
         <input type="checkbox" className="mt-1" checked={copyCollected}
                onChange={(e) => setCopyCollected(e.target.checked)} />
@@ -326,10 +592,187 @@ function PaymentPanel({
         </span>
       </label>
 
-      <button onClick={pay} disabled={busy || !copyCollected} className="btn-primary btn-lg w-full">
-        {busy ? tg.common.loading : tg.cash.confirmPay}
+      <button
+        onClick={pay}
+        disabled={busy || !copyCollected || amountError !== null}
+        className="btn-primary btn-lg w-full"
+      >
+        {busy
+          ? tg.common.loading
+          : handOverD === 0
+            ? tg.cash.settle
+            : `${tg.cash.settleAndPay} — ${diramToSomoniString(handOverD)} ${tg.common.somoni}`}
       </button>
     </div>
+  );
+}
+
+/**
+ * Paying a farm part of what it is already owed — the second, third or fourth visit.
+ *
+ * Not tied to any one борхат: by the time a farm comes back it may be owed against
+ * several, and the money it asks for is against its balance, not against a piece of paper.
+ */
+function PayoutPanel({
+  farm, cashOnHandD, onCancel, onNotice, onDone,
+}: {
+  farm: OwedFarm;
+  cashOnHandD: number;
+  onCancel: () => void;
+  onNotice: (n: { tone: "ok" | "bad"; text: string }) => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState(diramToSomoniString(Math.min(farm.owedD, cashOnHandD)));
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  let amountD = 0;
+  let error: string | null = null;
+  try {
+    amountD = amount.trim() ? somoniStringToDiram(amount) : 0;
+  } catch {
+    error = tg.cash.amountNotValid;
+  }
+  if (!error) {
+    if (amountD <= 0) error = tg.common.required;
+    else if (amountD > farm.owedD) error = tg.cash.moreThanOwed;
+    else if (amountD > cashOnHandD) error = tg.cash.notEnoughCash;
+  }
+
+  async function payOut() {
+    setBusy(true);
+    try {
+      const res = await submit<{
+        disbursementId: string; receiptNo: string; balanceAfterD: number;
+      }>("/api/disbursements", {
+        counterpartyId: farm.id,
+        amountD,
+        note: note.trim() || undefined,
+        paidAt: new Date().toISOString(),
+      });
+
+      if (res.kind === "rejected") {
+        onNotice({ tone: "bad", text: res.message });
+        return;
+      }
+      if (res.kind === "queued") {
+        // Cash must never leave the drawer on an unconfirmed payment.
+        onNotice({ tone: "bad", text: `${tg.app.offline} — ${tg.cash.confirmPay}` });
+        return;
+      }
+
+      onNotice({
+        tone: "ok",
+        text:
+          `${farm.name} — ${diramToSomoniString(amountD)} ${tg.common.somoni}` +
+          (res.result.balanceAfterD > 0
+            ? ` · ${tg.cash.remainingOwed} ${diramToSomoniString(res.result.balanceAfterD)}`
+            : ""),
+      });
+      window.open(`/pardokht/nakd/${res.result.disbursementId}`, "_blank");
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card space-y-4 p-5">
+      <header className="flex flex-wrap items-baseline gap-3">
+        <h2 className="text-lg font-semibold">{tg.cash.payOutTitle}</h2>
+        <span className="font-medium">{farm.name}</span>
+        <button onClick={onCancel} className="ms-auto btn-secondary">{tg.common.back}</button>
+      </header>
+
+      <dl className="divide-y divide-paper-line">
+        <Row label={tg.cash.weOweFarm}
+             value={`${diramToSomoniString(farm.owedD)} ${tg.common.somoni}`} strong />
+        <Row label={tg.cash.cashOnHand}
+             value={`${diramToSomoniString(cashOnHandD)} ${tg.common.somoni}`}
+             tone={cashOnHandD < farm.owedD ? "warn" : undefined} />
+      </dl>
+
+      <div>
+        <label className="label" htmlFor="payout-amount">{tg.cash.amount}</label>
+        <input
+          id="payout-amount"
+          inputMode="decimal"
+          autoFocus
+          className="input-number text-2xl"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+        <div className="mt-2 flex flex-wrap gap-2">
+          {[farm.owedD, 300_000, 200_000, 100_000]
+            .filter((v, i, a) => v <= farm.owedD && v <= cashOnHandD && a.indexOf(v) === i)
+            .map((v) => (
+              <button key={v} type="button" className="btn-secondary"
+                      onClick={() => setAmount(diramToSomoniString(v))}>
+                {diramToSomoniString(v)}
+              </button>
+            ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="label" htmlFor="payout-note">{tg.common.note}</label>
+        <input id="payout-note" className="input" value={note}
+               onChange={(e) => setNote(e.target.value)} />
+      </div>
+
+      {error && <p role="alert" className="text-sm font-medium text-alarm">{error}</p>}
+
+      {!error && (
+        <div className="rounded-lg bg-brand-light px-4 py-3">
+          <span className="text-sm text-brand-dark">{tg.cash.balanceAfter}</span>
+          <div className="tabular text-2xl font-bold text-brand-dark">
+            {diramToSomoniString(farm.owedD - amountD)} {tg.common.somoni}
+          </div>
+        </div>
+      )}
+
+      <button onClick={payOut} disabled={busy || error !== null}
+              className="btn-primary btn-lg w-full">
+        {busy ? tg.common.loading : `${tg.cash.payOut} — ${diramToSomoniString(amountD)} ${tg.common.somoni}`}
+      </button>
+    </div>
+  );
+}
+
+/** Cash that actually left the drawer — a different list from what was settled. */
+function PayoutHistory({ payouts }: { payouts: PayoutRow[] }) {
+  return (
+    <section className="card overflow-x-auto p-4">
+      <h2 className="mb-3 text-sm font-semibold text-ink-soft">{tg.cash.disbursementHistory}</h2>
+      <table className="w-full text-sm">
+        <tbody className="divide-y divide-paper-line">
+          {payouts.map((d) => (
+            <tr key={d.id} className={d.reversed ? "opacity-50 line-through" : ""}>
+              <td className="py-1.5 tabular text-ink-faint">
+                {new Date(d.paidAt).toLocaleString("ru-RU", {
+                  day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+                })}
+              </td>
+              <td className="py-1.5">{d.farm}</td>
+              <td className="py-1.5 text-xs text-ink-faint">
+                {d.paymentId ? tg.cash.againstTicket : tg.cash.againstBalance}
+              </td>
+              <td className="py-1.5 text-end tabular font-semibold">
+                {diramToSomoniString(d.amountD)}
+              </td>
+              <td className="py-1.5 text-end tabular text-xs text-warn">
+                {d.balanceAfterD > 0 ? diramToSomoniString(d.balanceAfterD) : "—"}
+              </td>
+              <td className="py-1.5 text-end">
+                <a href={`/pardokht/nakd/${d.id}`} className="text-brand hover:underline">
+                  {tg.cash.receipt}
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
@@ -348,10 +791,18 @@ function Row({
 
 // -------------------------------------------------------------------- advance
 
+/**
+ * Қарз — lending against cotton in the warehouse.
+ *
+ * Nothing is lent without collateral, so the panel leads with the collateral: this farm
+ * has so many kilograms standing in our shed, which at the owner's rate is worth so much,
+ * less what it already owes. docs/domain.md §4.
+ */
 function AdvanceForm({
-  farms, onNotice, onDone,
+  farms, advanceRateDPerKg, onNotice, onDone,
 }: {
-  farms: { id: string; name: string }[];
+  farms: FarmRow[];
+  advanceRateDPerKg: number;
   onNotice: (n: { tone: "ok" | "bad"; text: string }) => void;
   onDone: () => void;
 }) {
@@ -388,9 +839,36 @@ function AdvanceForm({
     }
   }
 
+  const farm = farms.find((f) => f.id === counterpartyId) ?? null;
+
+  /*
+   * The limit is shown before the amount is typed, and the amount is checked against it as
+   * it is typed. The server refuses an over-limit loan regardless — but a cashier who only
+   * finds out after pressing the button has already told the farmer a number.
+   */
+  let amountD = 0;
+  let error: string | null = null;
+  if (amount.trim()) {
+    try {
+      amountD = somoniStringToDiram(amount);
+    } catch {
+      error = tg.cash.amountNotValid;
+    }
+  }
+  if (!error && farm) {
+    if (farm.inHandG === 0) error = tg.cash.noCollateral;
+    else if (amountD > farm.headroomD) {
+      // The limit itself, in words and with the number — "Ҳадди қарз" alone is a column
+      // heading, and a cashier reading it under a field does not learn what to type.
+      error =
+        `${tg.cash.overLimitPrefix} ${diramToSomoniString(farm.headroomD)} ${tg.common.somoni}`;
+    }
+  }
+
   return (
     <form onSubmit={onSubmit} className="card p-5 space-y-4">
       <h2 className="font-semibold">{tg.advance.issue}</h2>
+
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label className="label" htmlFor="adv-farm">{tg.ticket.consignor}</label>
@@ -402,7 +880,7 @@ function AdvanceForm({
         </div>
         <div>
           <label className="label" htmlFor="adv-amount">{tg.advance.principal}</label>
-          <input id="adv-amount" inputMode="decimal" required className="input"
+          <input id="adv-amount" inputMode="decimal" required className="input-number"
                  placeholder="5000" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </div>
         <div>
@@ -411,10 +889,94 @@ function AdvanceForm({
                  onChange={(e) => setPurpose(e.target.value)} />
         </div>
       </div>
-      <button type="submit" disabled={busy || !counterpartyId || !amount} className="btn-primary">
-        {busy ? tg.common.loading : tg.advance.issue}
-      </button>
+
+      {/* Why this farm may borrow what it may — the cotton is the whole reason. */}
+      {farm && (
+        <div
+          className={`rounded-lg border p-4 ${
+            farm.inHandG === 0
+              ? "border-alarm bg-red-50"
+              : "border-paper-line bg-paper"
+          }`}
+        >
+          {farm.inHandG === 0 ? (
+            <p className="font-medium text-alarm">{tg.cash.noCollateral}</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-x-8 gap-y-3">
+                <Figure
+                  label={tg.cash.cottonInHand}
+                  value={`${gramsToKgString(farm.inHandG, 0)} ${tg.common.kg}`}
+                />
+                <Figure
+                  label={tg.cash.maxAdvance}
+                  value={`${diramToSomoniString(farm.maxAdvanceD)} ${tg.common.somoni}`}
+                />
+                {farm.advanceD > 0 && (
+                  <Figure
+                    label={tg.advance.outstanding}
+                    value={`− ${diramToSomoniString(farm.advanceD)} ${tg.common.somoni}`}
+                    tone="warn"
+                  />
+                )}
+                <Figure
+                  label={tg.cash.canBorrowNow}
+                  value={`${diramToSomoniString(farm.headroomD)} ${tg.common.somoni}`}
+                  tone="brand"
+                />
+              </div>
+              <p className="mt-2 text-xs text-ink-faint">
+                {tg.cash.lendingRate} {diramToSomoniString(advanceRateDPerKg)} {tg.common.somoni}
+                {" · "}
+                {tg.cash.lendingLimitHint}
+              </p>
+              {farm.overLent && (
+                <p className="mt-2 text-sm font-medium text-warn">{tg.cash.overLent}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Not repeated when the panel above already says it — one refusal, one place. */}
+      {error && error !== tg.cash.noCollateral && (
+        <p role="alert" className="text-sm font-medium text-alarm">{error}</p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="submit"
+          disabled={busy || !counterpartyId || !amount || error !== null}
+          className="btn-primary"
+        >
+          {busy ? tg.common.loading : tg.advance.issue}
+        </button>
+        {farm && farm.headroomD > 0 && (
+          <button type="button" className="btn-secondary"
+                  onClick={() => setAmount(diramToSomoniString(farm.headroomD))}>
+            {tg.cash.maxAdvance} — {diramToSomoniString(farm.headroomD)}
+          </button>
+        )}
+      </div>
     </form>
+  );
+}
+
+/** A small labelled figure, for the strips of numbers these panels are made of. */
+function Figure({
+  label, value, tone,
+}: { label: string; value: string; tone?: "brand" | "warn" }) {
+  return (
+    <div>
+      <div className="text-xs text-ink-faint">{label}</div>
+      <div
+        className={`tabular font-semibold ${
+          tone === "brand" ? "text-brand" : tone === "warn" ? "text-warn" : ""
+        }`}
+      >
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -496,5 +1058,125 @@ function PaymentHistory({ history }: { history: PaidRow[] }) {
         );
       })}
     </section>
+  );
+}
+
+/**
+ * Choosing which farm is at the window.
+ *
+ * Farms with cotton the lab has cleared come first — they are the ones that can be paid
+ * today. Each line carries the three numbers the cashier will be asked about before the
+ * farmer has finished talking: what is in our shed, what of it can be sold now, and what
+ * stands between us — their қарз, or our unpaid balance to them.
+ */
+function FarmChooser({
+  farms, query, advanceRateDPerKg, readOnly, onPick,
+}: {
+  farms: FarmRow[];
+  query: string;
+  advanceRateDPerKg: number;
+  readOnly?: boolean;
+  onPick: (id: string) => void;
+}) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    // The РМА is how a farm is found — however the number was written on the paper the
+    // cashier is reading it off. docs/domain.md §6.
+    const digits = normaliseTin(query);
+    const matched = q
+      ? farms.filter(
+          (f) =>
+            (digits.length > 0 && (f.tin ?? "").includes(digits)) ||
+            f.name.toLowerCase().includes(q) ||
+            (f.phone ?? "").includes(q),
+        )
+      : farms;
+
+    // Anyone the desk can actually deal with today, first.
+    return [...matched].sort((a, b) => {
+      const weight = (f: FarmRow) =>
+        (f.readyTickets > 0 ? 4 : 0) + (f.owedD > 0 ? 2 : 0) + (f.inHandG > 0 ? 1 : 0);
+      return weight(b) - weight(a) || a.name.localeCompare(b.name);
+    });
+  }, [farms, query]);
+
+  const dealable = filtered.filter((f) => f.readyTickets > 0 || f.owedD > 0 || f.inHandG > 0);
+  const rest = filtered.filter((f) => !dealable.includes(f));
+
+  if (filtered.length === 0) {
+    return (
+      <div className="card p-8 text-center text-ink-faint">{tg.common.noResults}</div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {dealable.map((f) => (
+        <button
+          key={f.id}
+          type="button"
+          disabled={readOnly}
+          onClick={() => onPick(f.id)}
+          className="card flex w-full flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-start transition-colors hover:border-brand/40 hover:bg-paper disabled:opacity-60"
+        >
+          <div className="min-w-44 flex-1">
+            <div className="font-semibold">{f.name}</div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink-faint">
+              <span className="tabular">{f.tin ?? "—"}</span>
+              {f.phone && <span className="tabular">{f.phone}</span>}
+            </div>
+          </div>
+
+          <Figure
+            label={tg.cash.cottonInHand}
+            value={f.inHandG > 0 ? `${gramsToKgString(f.inHandG, 0)} ${tg.common.kg}` : "—"}
+          />
+          <Figure
+            label={tg.cash.readyToSettle}
+            value={f.readyG > 0 ? `${gramsToKgString(f.readyG, 0)} ${tg.common.kg}` : "—"}
+            tone={f.readyG > 0 ? "brand" : undefined}
+          />
+          <Figure
+            label={tg.advance.outstanding}
+            value={f.advanceD > 0 ? diramToSomoniString(f.advanceD) : "—"}
+            tone={f.advanceD > 0 ? "warn" : undefined}
+          />
+          <Figure
+            label={tg.cash.canBorrowNow}
+            value={f.headroomD > 0 ? diramToSomoniString(f.headroomD) : "—"}
+          />
+          <Figure
+            label={tg.cash.weOweFarm}
+            value={f.owedD > 0 ? diramToSomoniString(f.owedD) : "—"}
+            tone={f.owedD > 0 ? "warn" : undefined}
+          />
+        </button>
+      ))}
+
+      {/* Farms with nothing going on are kept, because one of them is about to deliver —
+          but they are not put in front of the farms standing at the window. */}
+      {rest.length > 0 && (
+        <details className="card px-4 py-3">
+          <summary className="cursor-pointer text-sm text-ink-soft">
+            {tg.account.totalFarms} — {rest.length}
+          </summary>
+          <ul className="mt-2 divide-y divide-paper-line text-sm">
+            {rest.map((f) => (
+              <li key={f.id} className="py-1.5">
+                <button type="button" disabled={readOnly} onClick={() => onPick(f.id)}
+                        className="text-start hover:text-brand disabled:opacity-60">
+                  {f.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <p className="px-1 text-xs text-ink-faint">
+        {tg.cash.lendingRate} {diramToSomoniString(advanceRateDPerKg)} {tg.common.somoni} ·{" "}
+        {tg.cash.lendingLimitHint}
+      </p>
+    </div>
   );
 }

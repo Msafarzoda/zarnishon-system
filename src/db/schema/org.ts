@@ -27,7 +27,19 @@ export const users = pgTable(
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     username: text("username").notNull().unique(),
     fullName: text("full_name").notNull(),
+    /**
+     * The job this person is called by, and where they land after signing in. Permission
+     * checks test this **together with** `extraRoles`. docs/domain.md §6.
+     */
     role: userRole("role").notNull(),
+    /**
+     * Further roles granted on top of the primary one.
+     *
+     * One operator runs the whole floor during the parallel season — scale, lab and cash
+     * desk — and holds all three. Granting roles rather than loosening the checks means
+     * splitting them apart again is just removing entries here.
+     */
+    extraRoles: userRole("extra_roles").array().notNull().default(sql`ARRAY[]::user_role[]`),
     /** scrypt: <salt-hex>:<hash-hex> */
     passwordHash: text("password_hash").notNull(),
     /** 4–6 digit PIN hash for fast station login; optional. */

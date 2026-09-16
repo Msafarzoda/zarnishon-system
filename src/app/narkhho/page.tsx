@@ -1,11 +1,19 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
-import { priceQuotes, users, varieties } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
+import {
+  counterparties,
+  factorySettings,
+  priceQuotes,
+  users,
+  varieties,
+} from "@/db/schema/index";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { diramToSomoniString } from "@/domain/units";
+import { getActiveSettings } from "@/server/services/settings";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { PriceForm } from "./price-form";
+import { LendingForm, type LendingExposure } from "./lending-form";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +44,56 @@ export default async function PricesPage() {
 
   const current = quotes.find((q) => q.effectiveFrom <= new Date());
 
+  const settings = await getActiveSettings();
+
+  /**
+   * Every farm's exposure, so the owner can see what moving the rate does before moving
+   * it. Cotton "in hand" is the same definition the cash desk lends against: weighed or
+   * analysed, not yet settled. docs/domain.md §4.
+   *
+   * Tables are named explicitly inside the subqueries — interpolating a Drizzle column
+   * into a raw template renders it unqualified and collides with the join.
+   */
+  const exposureRows = await db
+    .select({
+      name: counterparties.name,
+      inHandG: raw<string>`COALESCE((
+        SELECT SUM(t.net_g) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id
+          AND t.status IN ('WEIGHED', 'ANALYSED')
+      ), 0)`,
+      outstandingD: raw<string>`COALESCE((
+        SELECT SUM(e.amount_d) FROM ledger_entries e
+        JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = counterparties.id
+      ), 0)`,
+    })
+    .from(counterparties)
+    .where(eq(counterparties.isActive, true));
+
+  const exposures: LendingExposure[] = exposureRows
+    .map((r) => ({
+      name: r.name,
+      inHandG: Number(r.inHandG),
+      outstandingD: Math.max(0, Number(r.outstandingD)),
+    }))
+    // A farm with neither cotton nor a loan changes nothing whichever way the rate moves.
+    .filter((e) => e.inHandG > 0 || e.outstandingD > 0);
+
+  // Settings are append-only, so the history is simply the rows in order.
+  const rateHistory = await db
+    .select({
+      id: factorySettings.id,
+      rate: factorySettings.advanceRateDPerKg,
+      effectiveFrom: factorySettings.effectiveFrom,
+      reason: factorySettings.reason,
+      setBy: users.fullName,
+    })
+    .from(factorySettings)
+    .leftJoin(users, eq(users.id, factorySettings.setBy))
+    .orderBy(desc(factorySettings.effectiveFrom))
+    .limit(20);
+
   return (
     <Shell user={user} title={tg.price.title}>
       <div className="space-y-5">
@@ -49,10 +107,52 @@ export default async function PricesPage() {
           <p className="mt-2 text-sm text-brand-dark/80">{tg.price.paymentDayNotice}</p>
         </div>
 
-        {user.role === "owner" ? (
-          <PriceForm varieties={varietyList} />
+        {canOperate(user, ["owner"]) ? (
+          <>
+            <PriceForm varieties={varietyList} />
+            <LendingForm
+              currentRateDPerKg={settings.advanceRateDPerKg}
+              exposures={exposures}
+            />
+          </>
         ) : (
-          <p className="card px-4 py-3 text-sm text-ink-soft">{tg.price.onlyOwner}</p>
+          <>
+            <p className="card px-4 py-3 text-sm text-ink-soft">{tg.price.onlyOwner}</p>
+            {/* The accountant reads the rate but does not set it. */}
+            <div className="card px-4 py-3">
+              <div className="text-sm text-ink-soft">{tg.lending.title}</div>
+              <div className="tabular text-2xl font-bold">
+                {diramToSomoniString(settings.advanceRateDPerKg)} {tg.common.somoni}
+                <span className="ms-2 text-sm font-normal text-ink-faint">
+                  {tg.lending.rate}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {rateHistory.length > 1 && (
+          <section className="card p-4">
+            <h2 className="mb-3 text-sm font-semibold text-ink-soft">
+              {tg.lending.title} — {tg.lending.history}
+            </h2>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-paper-line">
+                {rateHistory.map((r) => (
+                  <tr key={r.id}>
+                    <td className="py-1.5 tabular text-ink-faint">
+                      {r.effectiveFrom.toLocaleDateString("ru-RU")}
+                    </td>
+                    <td className="py-1.5 tabular font-semibold">
+                      {diramToSomoniString(r.rate)} {tg.common.somoni}
+                    </td>
+                    <td className="py-1.5 text-ink-soft">{r.reason ?? ""}</td>
+                    <td className="py-1.5 text-end text-ink-faint">{r.setBy ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
         )}
 
         <section className="card p-4">

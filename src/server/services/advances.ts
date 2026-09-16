@@ -1,9 +1,11 @@
 import { db } from "@/db/client";
 import { advances, auditLog, counterparties, ledgerEntries, ledgerTx } from "@/db/schema/index";
 import { eq } from "drizzle-orm";
-import { DomainError } from "@/domain/units";
+import { DomainError, diramToSomoniString, gramsToKgString } from "@/domain/units";
 import { buildAdvanceIssuedTx } from "@/domain/ledger";
 import { advanceAccountIdFor, primaryCashAccountId } from "./balances";
+import { cashOnHandInTx } from "./disbursements";
+import { farmCollateral } from "./collateral";
 
 export interface IssueAdvanceInput {
   clientUuid: string;
@@ -43,8 +45,40 @@ export async function issueAdvance(input: IssueAdvanceInput) {
       .limit(1);
     if (!farm) throw new DomainError("Хоҷагӣ ёфт нашуд. / Counterparty not found.");
 
-    const cashAccountId = await primaryCashAccountId();
-    const advanceAccountId = await advanceAccountIdFor(farm.id, farm.name);
+    /**
+     * Nothing is lent without cotton behind it. The farm may borrow up to the owner's
+     * rate per kilogram of its own unsettled cotton in our warehouse, less whatever it
+     * already owes — so a farm with an empty shed borrows nothing, however long we have
+     * known it. Checked inside the transaction, against tickets and the ledger, because a
+     * cap read a moment earlier is not a cap. docs/domain.md §4.
+     */
+    const collateral = await farmCollateral(farm.id, tx);
+    if (input.principalD > collateral.headroomD) {
+      throw new DomainError(
+        collateral.cottonInHandG === 0
+          ? `Ин хоҷагӣ дар анбори мо пахта надорад — қарз дода намешавад. / ` +
+            `This farm has no cotton in our warehouse; nothing can be lent.`
+          : `Ҳадди қарз барои ин хоҷагӣ ${diramToSomoniString(collateral.headroomD)} сомонӣ аст ` +
+            `(${gramsToKgString(collateral.cottonInHandG, 0)} кг пахта дар анбор). / ` +
+            `This farm may borrow at most ${diramToSomoniString(collateral.headroomD)} сомонӣ.`,
+      );
+    }
+
+    // A drawer cannot lend what it does not hold. Without this the ledger balances
+    // perfectly while нақди дар хазина goes negative — books that are internally
+    // consistent and describe a drawer that does not exist. Read inside the transaction
+    // for the same reason as every other limit here: read a moment earlier, two cashiers
+    // both see enough. docs/domain.md §4.
+    const drawer = await cashOnHandInTx(tx);
+    if (input.principalD > drawer) {
+      throw new DomainError(
+        `Дар хазина ҳамагӣ ${diramToSomoniString(Math.max(0, drawer))} сомонӣ ҳаст. / ` +
+          `The drawer holds only ${diramToSomoniString(Math.max(0, drawer))} сомонӣ.`,
+      );
+    }
+
+    const cashAccountId = await primaryCashAccountId(tx);
+    const advanceAccountId = await advanceAccountIdFor(farm.id, farm.name, tx);
     const issuedAt = input.issuedAt ?? new Date();
 
     const draft = buildAdvanceIssuedTx(

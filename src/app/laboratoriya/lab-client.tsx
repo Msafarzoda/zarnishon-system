@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DomainError,
@@ -12,6 +12,7 @@ import { deductionBp as computeDeduction, payableWeight } from "@/domain/weight"
 import type { DeductionMode } from "@/domain/weight";
 import { submit } from "@/lib/offline/station-client";
 import { tg } from "@/lib/i18n/tg";
+import { Stat } from "@/components/ui";
 
 export interface LabRow {
   ticketId: string;
@@ -40,8 +41,8 @@ interface Settings {
 }
 
 export function LabClient({
-  settings, waiting, recent,
-}: { settings: Settings; waiting: LabRow[]; recent: LabRow[] }) {
+  settings, waiting, recent, readOnly,
+}: { settings: Settings; waiting: LabRow[]; recent: LabRow[]; readOnly?: boolean }) {
   const router = useRouter();
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
@@ -68,6 +69,21 @@ export function LabClient({
         </div>
       )}
 
+      {/* What the bench needs before touching anything: how many trucks are standing,
+          how much cotton that is, and how much has already gone through today. */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <Stat
+          label={tg.lab.awaiting}
+          value={String(waiting.length)}
+          accent={waiting.length > 0}
+        />
+        <Stat
+          label={tg.lab.queueWeight}
+          value={`${gramsToKgString(waiting.reduce((n, r) => n + r.netG, 0), 0)} ${tg.common.kg}`}
+        />
+        <Stat label={tg.lab.doneToday} value={String(recent.length)} />
+      </section>
+
       <section>
         <h2 className="mb-2 text-sm font-semibold text-ink-soft">
           {tg.lab.awaiting} — {waiting.length}
@@ -78,6 +94,7 @@ export function LabClient({
           <div className="space-y-4">
             {waiting.map((row) => (
               <AnalysisCard key={row.ticketId} row={row} settings={settings}
+                            readOnly={readOnly}
                             onNotice={setNotice} onDone={() => router.refresh()} />
             ))}
           </div>
@@ -136,9 +153,9 @@ export function LabClient({
 }
 
 function AnalysisCard({
-  row, settings, onNotice, onDone,
+  row, settings, readOnly, onNotice, onDone,
 }: {
-  row: LabRow; settings: Settings;
+  row: LabRow; settings: Settings; readOnly?: boolean;
   onNotice: (n: { tone: "ok" | "bad"; text: string }) => void; onDone: () => void;
 }) {
   const [moisture, setMoisture] = useState(
@@ -148,6 +165,7 @@ function AnalysisCard({
     row.trashBp !== null ? bpToPercentString(row.trashBp) : "",
   );
   const [storage, setStorage] = useState(row.storageNote ?? "");
+  const [analysedBy, setAnalysedBy] = useState("");
   const [overriding, setOverriding] = useState(false);
   const [overrideValue, setOverrideValue] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
@@ -169,6 +187,28 @@ function AnalysisCard({
     }
   }
 
+  /**
+   * What will actually be written, which is not the computed figure once the technician
+   * overrides it. Showing only the computed number while sending a different one is how
+   * an override slips past both the technician and anyone reading over their shoulder,
+   * so the preview follows the override and states the difference in kilograms.
+   */
+  let applied: { deductionBp: number; payableG: number } | null = null;
+  if (preview && !("error" in preview)) {
+    let bp = preview.deductionBp;
+    if (overriding && overrideValue.trim()) {
+      try {
+        bp = percentStringToBp(overrideValue);
+      } catch {
+        bp = preview.deductionBp;
+      }
+    }
+    applied = { deductionBp: bp, payableG: payableWeight(row.netG, bp) };
+  }
+  const overridden =
+    applied !== null && preview !== null && !("error" in preview) &&
+    applied.deductionBp !== preview.deductionBp;
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!preview || "error" in preview) return;
@@ -183,6 +223,7 @@ function AnalysisCard({
           moistureBp: percentStringToBp(moisture),
           trashBp: percentStringToBp(trash),
           storageNote: storage || undefined,
+          analysedBy: analysedBy || undefined,
           sampledAt: new Date().toISOString(),
         });
         if (created.kind !== "applied") {
@@ -233,82 +274,160 @@ function AnalysisCard({
             {tg.ticket.batch} {row.batchNumber}
           </span>
         )}
+        {row.weighedAt && <WaitingFor since={row.weighedAt} />}
         <span className="ms-auto tabular font-semibold">
           {tg.ticket.net} {gramsToKgString(row.netG, 1)} {tg.common.kg}
         </span>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="label" htmlFor={`m-${row.ticketId}`}>{tg.lab.moisture}</label>
           <input id={`m-${row.ticketId}`} inputMode="decimal" required autoComplete="off"
                  className="input-number" placeholder="9"
+                 readOnly={readOnly}
                  value={moisture} onChange={(e) => setMoisture(e.target.value)} />
         </div>
         <div>
           <label className="label" htmlFor={`t-${row.ticketId}`}>{tg.lab.trash}</label>
           <input id={`t-${row.ticketId}`} inputMode="decimal" required autoComplete="off"
                  className="input-number" placeholder="2"
+                 readOnly={readOnly}
                  value={trash} onChange={(e) => setTrash(e.target.value)} />
         </div>
         <div>
           <label className="label" htmlFor={`s-${row.ticketId}`}>{tg.lab.storage}</label>
           <input id={`s-${row.ticketId}`} className="input" placeholder={tg.lab.bunt}
+                 readOnly={readOnly}
                  value={storage} onChange={(e) => setStorage(e.target.value)} />
+        </div>
+        {/* The лаборант works on paper and somebody else types it in; without this the
+            record would read as though the person at the keyboard took the sample. */}
+        <div>
+          <label className="label" htmlFor={`by-${row.ticketId}`}>{tg.lab.analysedBy}</label>
+          <input id={`by-${row.ticketId}`} className="input" readOnly={readOnly}
+                 value={analysedBy} onChange={(e) => setAnalysedBy(e.target.value)} />
+          <p className="mt-1 text-xs text-ink-faint">{tg.lab.analysedByHint}</p>
         </div>
       </div>
 
-      {preview && (
-        "error" in preview ? (
-          <p className="text-alarm font-medium">{preview.error}</p>
-        ) : (
-          <div className="flex flex-wrap gap-6 rounded-lg bg-brand-light px-4 py-3">
-            <div>
-              <span className="text-sm text-brand-dark">{tg.lab.deduction}</span>
-              <div className="tabular text-2xl font-bold text-brand-dark">
-                {bpToPercentString(preview.deductionBp)} %
-              </div>
-            </div>
-            <div>
-              <span className="text-sm text-brand-dark">{tg.cash.payable}</span>
-              <div className="tabular text-2xl font-bold text-brand-dark">
-                {gramsToKgString(preview.payableG, 1)} {tg.common.kg}
-              </div>
-            </div>
-          </div>
-        )
+      {preview && "error" in preview && (
+        <p className="text-alarm font-medium">{preview.error}</p>
       )}
 
-      <div className="space-y-3 border-t border-paper-line pt-3">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={overriding}
-                 onChange={(e) => setOverriding(e.target.checked)} />
-          {tg.lab.override}
-        </label>
-
-        {overriding && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor={`o-${row.ticketId}`}>{tg.lab.deduction}</label>
-              <input id={`o-${row.ticketId}`} inputMode="decimal" required className="input"
-                     value={overrideValue} onChange={(e) => setOverrideValue(e.target.value)} />
+      {applied && preview && !("error" in preview) && (
+        <div
+          className={`flex flex-wrap gap-6 rounded-lg px-4 py-3 ${
+            overridden ? "border border-warn bg-amber-50" : "bg-brand-light"
+          }`}
+        >
+          <div>
+            <span className={`text-sm ${overridden ? "text-warn" : "text-brand-dark"}`}>
+              {tg.lab.deduction}
+            </span>
+            <div
+              className={`tabular text-2xl font-bold ${
+                overridden ? "text-warn" : "text-brand-dark"
+              }`}
+            >
+              {bpToPercentString(applied.deductionBp)} %
             </div>
-            <div>
-              <label className="label" htmlFor={`r-${row.ticketId}`}>{tg.lab.overrideReason}</label>
-              <input id={`r-${row.ticketId}`} required className="input"
-                     value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
+            {overridden && (
+              <div className="text-xs text-ink-faint">
+                {tg.lab.computedWas} {bpToPercentString(preview.deductionBp)} %
+              </div>
+            )}
+          </div>
+          <div>
+            <span className={`text-sm ${overridden ? "text-warn" : "text-brand-dark"}`}>
+              {tg.cash.payable}
+            </span>
+            <div
+              className={`tabular text-2xl font-bold ${
+                overridden ? "text-warn" : "text-brand-dark"
+              }`}
+            >
+              {gramsToKgString(applied.payableG, 1)} {tg.common.kg}
             </div>
           </div>
-        )}
-      </div>
+          {overridden && (
+            <div>
+              <span className="text-sm text-warn">{tg.lab.difference}</span>
+              <div className="tabular text-2xl font-bold text-warn">
+                {applied.payableG >= preview.payableG ? "+" : "−"}
+                {gramsToKgString(Math.abs(applied.payableG - preview.payableG), 1)}{" "}
+                {tg.common.kg}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-      <button type="submit"
-              disabled={busy || !preview || "error" in preview ||
-                        (overriding && (!overrideValue || !overrideReason.trim()))}
-              className="btn-primary btn-lg w-full">
-        {busy ? tg.common.loading : `${tg.lab.approve} — ${tg.common.print}`}
-      </button>
+      {/* Overriding the deduction is the one place in the lab where a person can move a
+          farmer's weight by hand, so it is opened deliberately, warned about in words,
+          and its effect is shown above in kilograms before it is approved. */}
+      {!readOnly && (
+        <div className="space-y-3 border-t border-paper-line pt-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={overriding}
+                   onChange={(e) => setOverriding(e.target.checked)} />
+            {tg.lab.override}
+          </label>
+
+          {overriding && (
+            <div className="space-y-3 rounded-lg border border-warn bg-amber-50 p-3">
+              <p className="text-xs text-warn">{tg.lab.overrideWarning}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor={`o-${row.ticketId}`}>{tg.lab.deduction}</label>
+                  <input id={`o-${row.ticketId}`} inputMode="decimal" required
+                         className="input-number"
+                         value={overrideValue} onChange={(e) => setOverrideValue(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label" htmlFor={`r-${row.ticketId}`}>
+                    {tg.lab.overrideReason}
+                  </label>
+                  <input id={`r-${row.ticketId}`} required className="input"
+                         value={overrideReason}
+                         onChange={(e) => setOverrideReason(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!readOnly && (
+        <button type="submit"
+                disabled={busy || !applied ||
+                          (overriding && (!overrideValue.trim() || !overrideReason.trim()))}
+                className="btn-primary btn-lg w-full">
+          {busy ? tg.common.loading : `${tg.lab.approve} — ${tg.common.print}`}
+        </button>
+      )}
       <p className="text-xs text-ink-faint">{tg.lab.alreadyApproved}</p>
     </form>
+  );
+}
+
+/**
+ * How long this truck has been standing since the weighbridge finished with it. A farmer
+ * waiting on a sample has no way to ask, so the bench is shown instead.
+ */
+function WaitingFor({ since }: { since: string }) {
+  // Measured in the browser, after mounting: the server renders this HTML at one moment
+  // and the browser hydrates it at another, and a clock that disagrees across the two
+  // makes React discard the render.
+  const [hours, setHours] = useState<number | null>(null);
+  useEffect(() => {
+    setHours(Math.floor((Date.now() - new Date(since).getTime()) / 3_600_000));
+  }, [since]);
+
+  if (hours === null || hours < 1) return null;
+  return (
+    <span className={`badge ${hours >= 4 ? "bg-amber-100 text-warn" : "bg-paper text-ink-soft"}`}>
+      {hours} {tg.lab.waitingHours}
+    </span>
   );
 }

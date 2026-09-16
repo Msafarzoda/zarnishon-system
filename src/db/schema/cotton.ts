@@ -70,6 +70,11 @@ export const factorySettings = pgTable(
     normTrashBp: integer("norm_trash_bp").notNull(),
     /** Mass-balance tolerance per batch, basis points. Drift beyond this alarms. */
     massBalanceToleranceBp: integer("mass_balance_tolerance_bp").notNull().default(50),
+    /**
+     * How much a farm may borrow per kilogram of its cotton sitting in our warehouse,
+     * diram. The collateral rate, not a price: 100 = 1 сомонӣ per kg. docs/domain.md §4.
+     */
+    advanceRateDPerKg: integer("advance_rate_d_per_kg").notNull().default(100),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
     setBy: uuid("set_by").notNull(),
     reason: text("reason"),

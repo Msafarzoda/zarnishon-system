@@ -1,0 +1,13 @@
+# Four times a day, not nightly. A gin runs around the clock in season, and losing the
+# afternoon's weighings because the machine died at 18:00 is a day of arguments with
+# farmers holding paper the system has no record of.
+[Unit]
+Description=ЧДММ «ЗАРНИШОН» — backup four times a day
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:10:00
+# The machine is off when the power is out; run a missed backup as soon as it is back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

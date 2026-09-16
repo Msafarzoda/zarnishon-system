@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { AuthError, homePathFor, signIn } from "@/lib/auth/session";
+import { AuthError, homeFor, signIn } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 
 export async function signInAction(_prev: { error?: string }, formData: FormData) {
@@ -24,5 +24,5 @@ export async function signInAction(_prev: { error?: string }, formData: FormData
   }
   if (!user) return { error: tg.auth.wrongCredentials };
 
-  redirect(homePathFor(user.role));
+  redirect(homeFor(user));
 }

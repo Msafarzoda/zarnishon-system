@@ -193,6 +193,48 @@ gross_amount_d  = round( payable_g × price_d_per_kg / 1000 )
 A farm may take a **short-term loan against its name** — cash to pay pickers — before
 selling. Advances sit on the **farm's** ledger, not on any single ticket.
 
+#### The lending limit — cotton in hand is the collateral
+
+Decision of 15.09.2026: **nothing is lent without cotton behind it.** A farm may borrow up
+to a fixed rate per kilogram of **its own undelivered-on cotton sitting in our warehouse**:
+
+```
+cotton_in_hand_g = Σ нетто of that farm's tickets that are weighed but not yet settled
+max_advance_d    = cotton_in_hand_g × advance_rate_d_per_kg / 1000
+headroom_d       = max_advance_d − outstanding_advance_d
+```
+
+`advance_rate_d_per_kg` is a factory setting the owner sets, like the deduction norms —
+100 diram (1 сомонӣ) per kg to begin with. At that rate a farm with 3 000 kg in the shed
+may borrow up to 3 000 сомонӣ, and not a diram more.
+
+Three things this deliberately does **not** do:
+
+- **No lab deduction is applied.** The cap is on raw нетто, not payable weight. It is a
+  lending limit, not a valuation — the margin between 1 сомонӣ and the real price per kg
+  is what makes it safe, and applying a deduction on top would only make it arbitrary.
+- **Settled cotton stops being collateral.** Once a борхат is settled the cotton is ours
+  and the money is the farm's; it has moved to the other side of the books and cannot
+  secure a loan as well.
+- **It is not a credit score.** A farm with no cotton in the shed can borrow nothing,
+  however long we have known them.
+
+### Paying a farm, not a ticket
+
+A farm delivers four or five loads over a season and comes in once, months later, saying
+*«6 000 сомонӣ мехоҳам»* — an amount, not a борхат. So the cash desk starts from the farm:
+
+1. Value everything it has in hand at **today's** price.
+2. Settle its oldest борхатҳо, whole, until they cover the amount asked for. Oldest first,
+   because that is the order the cotton came in and the only order nobody has to argue
+   about. A борхат cannot be split — it is one ticket, one price, one settlement.
+3. Recover any outstanding advance out of what those settlements come to, in the usual way.
+4. Hand over exactly what was asked for. Anything the last ticket settled beyond it stays
+   on the farm's balance to collect later.
+
+If everything in hand does not cover the amount asked for, the desk says so and offers
+what it does cover. It never settles more than it must.
+
 At settlement:
 ```
 offset_d       = min( outstanding_advance_d, gross_amount_d )
@@ -201,21 +243,62 @@ cash_payable_d = gross_amount_d − offset_d
 The offset reduces the farm's outstanding advance balance. Any remaining advance stays
 outstanding against future deliveries.
 
+### Settlement and disbursement are two different events
+
+Decision of 14.09.2026, from the cash desk: a farm whose борхат settles at 6 000 сомонӣ
+routinely wants only 2 000 or 3 000 today, and some days the drawer does not hold enough
+to pay in full even when the farm wants it all. The old model — one ticket, one payment,
+all the cash at once — could not express either case, so the desk had no way to record a
+part-payment and no record of what was still owed.
+
+Money therefore moves in **two** steps, and they are separate ledger transactions:
+
+**1. Ҳисоббаробаркунӣ (settlement)** — the farm surrenders Copy C and accepts the price.
+
+```
+Dr COTTON_PURCHASE        gross_amount_d
+  Cr ADVANCE_RECEIVABLE                  advance_offset_d
+  Cr FARM_PAYABLE                        cash_payable_d
+```
+
+No cash moves. The ticket goes `ANALYSED → PAID`, meaning *settled and closed* — it can
+never be settled again. What the factory now owes sits on the farm's `FARM_PAYABLE`
+account.
+
+**2. Пардохти нақдӣ (disbursement)** — cash actually leaves the drawer, any amount, any
+number of times, until the balance is nil.
+
+```
+Dr FARM_PAYABLE      amount_d
+  Cr CASH                       amount_d
+```
+
+**The price is fixed at settlement, not at each disbursement.** The farm chose the day it
+handed over Copy C; taking the money in instalments afterwards is a cash arrangement, not
+a second bet on the price. A farm that wants to keep speculating simply does not settle —
+it keeps Copy C, and the ticket stays `ANALYSED`.
+
 ### Payment rules
-1. Payment requires an **UNPAID** ticket with an **approved lab analysis**.
-2. A ticket can be paid **once**. Enforced by a unique constraint, not by UI.
+1. Settlement requires an **ANALYSED** ticket with an **approved lab analysis**.
+2. A ticket can be settled **once**. Enforced by a unique constraint, not by UI.
 3. The cashier **cannot** create tickets, set prices, or enter lab results.
-4. Every payment writes a **cash ledger entry**; cash on hand is always **derived by
-   summing the ledger**, never stored as a mutable number.
-5. Paying prints an invoice; the ticket moves `UNPAID → PAID` and Copy C is collected.
-6. A farmer who declines payment today keeps Copy C; the ticket simply stays `UNPAID`.
+4. Every movement writes **ledger entries**; cash on hand and every farm balance are
+   always **derived by summing the ledger**, never stored as mutable numbers.
+5. Settling prints a receipt in **two copies** — хазина and the farm. It states what was
+   handed over today and what is still owed, so the farm's copy is the claim on the rest.
+6. A farmer who declines to settle today keeps Copy C; the ticket stays `ANALYSED`.
+7. A disbursement may never exceed either the farm's outstanding balance or the cash in
+   the drawer. Both are checked inside the same transaction that posts it.
+8. Paying nothing at settlement is allowed and normal — it is how "we will pay you later"
+   is recorded instead of being remembered.
 
 ### Ticket status machine
 ```
 DRAFT → OPEN (gross taken)
 OPEN → WEIGHED (tare taken, net known)
 WEIGHED → ANALYSED (lab approved for its batch)
-ANALYSED → PAID (cash paid, copy C surrendered)
+ANALYSED → PAID (settled at the day's price, copy C surrendered —
+                 the cash itself may follow later, in instalments)
 any → VOID (reason mandatory, owner-visible)
 ```
 
@@ -273,6 +356,44 @@ not a policy note.
 | `accountant` (муҳосиб) | Read all; post corrections with reason. Cannot pay. |
 | `owner` (соҳиб) | Set prices, see everything, approve voids/overrides. |
 | `admin` | User and station management. No money path. |
+
+### One person holding several roles
+
+Decision of 15.09.2026, for the first season: **the factory is running the paper process
+and this system side by side**, and only one operator is entering data. Салимов Ҷ. holds
+`weigher`, `lab`, `cashier` and `accountant` at once. The лаборант keeps writing Форма
+№9-хл by hand, the тарозубон takes the sheets and types them in.
+
+A user therefore has a **primary role** — which decides where they land after signing in
+and what they are called on screen — and any number of **extra roles** granted on top.
+Every permission check tests the union.
+
+This is a deliberate suspension of §5's separation of duties, and it is worth being exact
+about what is given up. With one person holding the scale, the lab and the cash drawer,
+the system can no longer stop that person inventing a load and paying themselves for it.
+What still holds:
+
+- **Every record still says who made it.** The audit log names Салимов on the weighing,
+  the analysis and the payment, so the sequence is legible afterwards rather than hidden.
+- **The paper is the control.** During the parallel season the hand-written борхат and
+  Форма №9-хл exist independently of anything typed, and the two can be compared. That
+  comparison — not the software — is what makes this safe for now.
+- **Arithmetic controls are untouched.** A ticket still cannot be paid twice, the drawer
+  still cannot go negative, weights still have to match their events.
+
+Splitting the roles back apart is removing extra roles from one account. Nothing else in
+the system needs to change, which is the point of granting them this way rather than by
+loosening the checks.
+
+### The farm's identity is its РМА
+
+Decision of 15.09.2026: a хоҷагӣ is identified by its **tax number** (РМА / РЯМ / ИНН),
+not by its name. Names are written differently on different waybills — «х-д Билол-Б»,
+«хочагии Билол Б», «Билол» — and a farm that appears twice under two spellings has its
+cotton, its advances and its balance split across two records that nobody notices.
+
+So the РМА is unique across farms, required when a farm is created, and is what search
+matches first. A farm that delivered once three seasons ago is found by typing its number.
 
 ---
 

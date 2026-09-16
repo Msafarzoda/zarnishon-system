@@ -34,6 +34,7 @@ export function FarmStatementTable({ rows }: { rows: StatementRow[] }) {
           <Th end>{tg.lab.deduction}</Th>
           <Th end>{tg.account.colPrice}</Th>
           <Th end>{tg.account.colAmount}</Th>
+          <Th end>{tg.account.colCashOut}</Th>
           <Th end>{tg.account.colAdvance}</Th>
           <Th end>{tg.account.colBalance}</Th>
         </tr>
@@ -41,7 +42,7 @@ export function FarmStatementTable({ rows }: { rows: StatementRow[] }) {
       <tbody className="divide-y divide-paper-line">
         {rows.map((r, i) => (
           <tr
-            key={`${r.kind}-${r.paymentId ?? r.ticketId ?? i}`}
+            key={`${r.kind}-${r.disbursementId ?? r.paymentId ?? r.ticketId ?? i}`}
             className={r.reversed ? "text-ink-faint line-through" : ""}
           >
             <Td>{r.at.toLocaleDateString("ru-RU")}</Td>
@@ -52,7 +53,13 @@ export function FarmStatementTable({ rows }: { rows: StatementRow[] }) {
             <Td>
               {r.serial ? (
                 <a
-                  href={r.paymentId ? `/pardokht/${r.paymentId}` : `/borkhat/${r.ticketId}`}
+                  href={
+                    r.disbursementId
+                      ? `/pardokht/nakd/${r.disbursementId}`
+                      : r.paymentId
+                        ? `/pardokht/${r.paymentId}`
+                        : `/borkhat/${r.ticketId}`
+                  }
                   className="font-mono text-xs text-brand hover:underline"
                 >
                   {r.serial}
@@ -76,6 +83,20 @@ export function FarmStatementTable({ rows }: { rows: StatementRow[] }) {
             <Td end strong>
               {r.grossAmountD !== null ? diramToSomoniString(r.grossAmountD) : ""}
             </Td>
+            {/* Cash that actually changed hands, which is not the same column as what the
+                cotton was worth — a settled борхат can hand over nothing at all. */}
+            <Td end>
+              {r.cashD !== null ? (
+                <span className="font-semibold text-brand">{diramToSomoniString(r.cashD)}</span>
+              ) : (
+                ""
+              )}
+              {r.payableBalanceD !== null && r.payableBalanceD > 0 && (
+                <span className="ms-2 text-xs text-warn">
+                  → {diramToSomoniString(r.payableBalanceD)}
+                </span>
+              )}
+            </Td>
             <Td end>
               {r.advanceIssuedD ? (
                 <span className="text-warn">+ {diramToSomoniString(r.advanceIssuedD)}</span>
@@ -98,19 +119,21 @@ export function FarmStatementTable({ rows }: { rows: StatementRow[] }) {
 }
 
 function operation(kind: StatementRow["kind"]): string {
-  return kind === "delivery"
-    ? tg.account.opDelivery
-    : kind === "advance"
-      ? tg.account.opAdvance
-      : tg.account.opPayment;
+  switch (kind) {
+    case "delivery": return tg.account.opDelivery;
+    case "advance": return tg.account.opAdvance;
+    case "disbursement": return tg.account.opDisbursement;
+    default: return tg.account.opPayment;
+  }
 }
 
 function label(kind: StatementRow["kind"]): string {
-  return kind === "delivery"
-    ? "font-medium"
-    : kind === "advance"
-      ? "font-medium text-warn"
-      : "font-medium text-brand";
+  switch (kind) {
+    case "delivery": return "font-medium";
+    case "advance": return "font-medium text-warn";
+    case "disbursement": return "font-medium text-brand";
+    default: return "font-medium text-ink-soft";
+  }
 }
 
 function Th({ children, end }: { children: React.ReactNode; end?: boolean }) {

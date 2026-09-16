@@ -6,6 +6,8 @@ const schema = z.object({
   clientUuid: z.string().uuid(),
   ticketId: z.string().uuid(),
   copyCollected: z.boolean(),
+  /** Diram to hand over now. Omit for the whole amount; 0 means "we will pay you later". */
+  disburseD: z.number().int().min(0).optional(),
   paidAt: z.string().datetime().optional(),
   originatedOffline: z.boolean().optional(),
 });

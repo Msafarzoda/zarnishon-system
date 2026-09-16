@@ -6,6 +6,11 @@ import {
   isSettled,
   parseScaleFrame,
   type ScaleReading,
+  diagnoseScale,
+  describeBytes,
+  parseKeliStxEtx,
+  encodeKeliFrame,
+  keliChecksum,
 } from "../scale";
 
 const cas = SCALE_PROTOCOLS.cas!;
@@ -264,5 +269,113 @@ describe("detectProtocol", () => {
   it("reads frames through whatever it detected", () => {
     const detected = detectProtocol([toledoFrame("003015")])!;
     expect(readFrame(toledoFrame("002380"), detected)?.weightG).toBe(2_380_000);
+  });
+});
+
+describe("diagnosing a silent port", () => {
+  const base = { portOpen: true, bytesReceived: 0, framesCut: 0, readingsParsed: 0 };
+
+  it("says nothing is connected before a port is opened", () => {
+    expect(diagnoseScale({ ...base, portOpen: false })).toBe("not-connected");
+  });
+
+  it("distinguishes a silent port from a noisy one", () => {
+    // Nothing at all: cable, wrong port, or the indicator is not set to send.
+    expect(diagnoseScale(base)).toBe("no-bytes");
+    // Bytes but never a frame boundary: the classic wrong-baud-rate signature.
+    expect(diagnoseScale({ ...base, bytesReceived: 900 })).toBe("bytes-no-frames");
+  });
+
+  it("distinguishes an unknown format from a broken connection", () => {
+    expect(diagnoseScale({ ...base, bytesReceived: 900, framesCut: 40 })).toBe("frames-no-parse");
+  });
+
+  it("reports a working stream only when weights actually came out", () => {
+    expect(
+      diagnoseScale({ portOpen: true, bytesReceived: 900, framesCut: 40, readingsParsed: 40 }),
+    ).toBe("streaming");
+  });
+});
+
+describe("showing raw bytes to a human", () => {
+  it("prints text as text", () => {
+    expect(describeBytes([0x33, 0x30, 0x31, 0x35])).toBe("3015");
+  });
+
+  it("makes control bytes visible instead of invisible", () => {
+    expect(describeBytes([0x02, 0x33, 0x0d])).toBe("<02>3<0d>");
+  });
+
+  it("makes wrong-baud noise look like noise rather than like nothing", () => {
+    // High bytes print as nothing at all in a naive renderer, which reads as a dead port.
+    expect(describeBytes([0xf8, 0xe0, 0xff])).toBe("<f8><e0><ff>");
+  });
+});
+
+describe("Keli D2008 — STX…ETX frame", () => {
+  it("reads the weight off a well-formed frame", () => {
+    const frame = encodeKeliFrame(3015);
+    expect(frame).toHaveLength(12);
+    expect(frame.charCodeAt(0)).toBe(0x02);
+    expect(frame.charCodeAt(11)).toBe(0x03);
+
+    const r = parseKeliStxEtx(frame);
+    expect(r?.weightG).toBe(3_015_000);
+    expect(r?.raw).toBe(frame);
+  });
+
+  it("strips leading zeros rather than reading them as part of the number", () => {
+    expect(parseKeliStxEtx(encodeKeliFrame(635))?.weightG).toBe(635_000);
+    expect(parseKeliStxEtx(encodeKeliFrame(7))?.weightG).toBe(7_000);
+  });
+
+  it("keeps the sign — a platform can read below zero", () => {
+    const r = parseKeliStxEtx(encodeKeliFrame(-40));
+    expect(r?.weightG).toBe(-40_000);
+    expect(r?.negative).toBe(true);
+  });
+
+  it("never claims the reading is stable: this frame carries no motion bit", () => {
+    const r = parseKeliStxEtx(encodeKeliFrame(3015));
+    expect(r?.stabilityKnown).toBe(false);
+    expect(r?.stable).toBe(false);
+  });
+
+  it("discards a frame whose checksum does not match, rather than repairing it", () => {
+    const good = encodeKeliFrame(3015);
+    // One digit corrupted in transit — 3015 becomes 8015, and the checksum no longer fits.
+    const corrupted = good.slice(0, 5) + "8" + good.slice(6);
+    expect(corrupted).not.toBe(good);
+    expect(parseKeliStxEtx(corrupted)).toBeNull();
+  });
+
+  it("rejects a frame that is the right shape but the wrong length", () => {
+    expect(parseKeliStxEtx(encodeKeliFrame(3015).slice(0, 11))).toBeNull();
+    expect(parseKeliStxEtx(encodeKeliFrame(3015) + "\x03")).toBeNull();
+  });
+
+  it("rejects a frame missing its delimiters", () => {
+    const body = "+0003015";
+    expect(parseKeliStxEtx(`${body}${keliChecksum(body)}`)).toBeNull();
+  });
+
+  it("computes the checksum as the XOR of the sign and the digits", () => {
+    // "+0000015" — five '0's, so they do not cancel: an odd count leaves one behind.
+    //   '+' 0x2B ^ '0' 0x30 = 0x1B
+    //   0x1B ^ '1' 0x31     = 0x2A
+    //   0x2A ^ '5' 0x35     = 0x1F
+    expect(keliChecksum("+0000015")).toBe("1F");
+
+    // Seven '0's — an odd count again, so one survives: 0x2B ^ 0x30 = 0x1B.
+    expect(keliChecksum("+0000000")).toBe("1B");
+  });
+
+  it("settles only after several identical frames, since nothing declares stability", () => {
+    const at = (kg: number) => parseKeliStxEtx(encodeKeliFrame(kg))!;
+    // Still rocking on its springs.
+    expect(isSettled([at(3010), at(3014), at(3015), at(3013), at(3015)])).toBe(false);
+    // Stopped.
+    expect(isSettled([at(3015), at(3015), at(3015), at(3015), at(3015)], { toleranceG: 0 }))
+      .toBe(true);
   });
 });

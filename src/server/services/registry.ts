@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { auditLog, counterparties, drivers, vehicles } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
-import { normalisePlate } from "@/domain/plate";
+import { isPlausibleTin, normalisePlate, normaliseTin } from "@/domain/plate";
 
 /**
  * Records a тарозубон must be able to create with a truck sitting on the weighbridge.
@@ -37,11 +37,28 @@ export async function createCounterparty(input: CreateCounterpartyInput) {
   const name = input.name.trim();
   if (!name) throw new DomainError("Номи хоҷагӣ ҳатмист. / A name is required.");
 
-  const tin = input.tin?.trim() || null;
-  if (tin && !/^\d{9,12}$/.test(tin)) {
-    throw new DomainError(
-      "РЯМ/РМА бояд 9–12 рақам бошад. / A taxpayer ID must be 9–12 digits.",
-    );
+  /*
+   * The РМА is the farm's identity, not a note on the record: required for a farm,
+   * normalised, and unique. A farm created at the weighbridge under a slightly different
+   * spelling of its name would otherwise become a second farm, splitting its cotton, its
+   * advances and its balance across two records nobody notices. docs/domain.md §6.
+   */
+  const raw = input.tin?.trim() ?? "";
+  let tin: string | null = null;
+  if (input.kind === "farm") {
+    if (!raw) {
+      throw new DomainError(
+        "РМА-и хоҷагӣ ҳатмист. / A farm's taxpayer number is required — it is its identity.",
+      );
+    }
+    if (!isPlausibleTin(raw)) {
+      throw new DomainError(
+        "РМА нодуруст аст — танҳо рақамҳо, 8–14 рақам. / Not a usable taxpayer number.",
+      );
+    }
+    tin = normaliseTin(raw);
+  } else if (raw) {
+    tin = normaliseTin(raw);
   }
 
   // Replay of a queued creation.
@@ -51,6 +68,22 @@ export async function createCounterparty(input: CreateCounterpartyInput) {
     .where(eq(counterparties.id, input.id))
     .limit(1);
   if (existing) return { id: existing.id, name: existing.name, tin: existing.tin, created: false };
+
+  /*
+   * The same farm arriving under a second name. Returned rather than refused: the
+   * weighbridge must not stop because somebody typed «хочагии Билол» instead of
+   * «х-д Билол-Б» — the number says it is the same farm, so the existing record is used.
+   */
+  if (tin) {
+    const [sameTin] = await db
+      .select()
+      .from(counterparties)
+      .where(eq(counterparties.tin, tin))
+      .limit(1);
+    if (sameTin) {
+      return { id: sameTin.id, name: sameTin.name, tin: sameTin.tin, created: false };
+    }
+  }
 
   const [row] = await db
     .insert(counterparties)

@@ -60,27 +60,93 @@ repository (`src/db/seed.ts`).
 
 ---
 
-## 2. HTTPS, and why it is not optional
+## 2. Putting the server on the network
 
-The weighbridge browser reads the indicator through the Web Serial API, and browsers only
-allow that on a **secure origin**. Over plain `http://192.168.1.10` the port cannot be
-opened, and the weighbridge falls back to somebody typing a weight — which is the one
-thing this system exists to prevent.
+The app runs on the laptop; the weighbridge, the lab and the cash desk reach it over the
+LAN. Two commands:
 
-Caddy issues the certificate itself, offline, from its own authority. On **each station**,
-once:
+```bash
+npm run certs      # issue a certificate for this machine's current address
+npm run dev:lan    # serve it to the network
+```
 
-1. Copy the root certificate off the laptop:
-   ```bash
-   docker compose -f docker-compose.prod.yml cp \
-     proxy:/data/caddy/pki/authorities/local/root.crt ./zarnishon-root.crt
-   ```
-2. On Windows: double-click → Install Certificate → **Local Machine** → Place all
-   certificates in **Trusted Root Certification Authorities**.
-3. Open `https://192.168.1.10` — no warning.
+`dev:lan` prints every address the machine can be reached on. Use `start:lan` once the
+season is real — same server, production build.
 
-Put the same address in the router's DNS as `zarnishon.local` if you would rather the
-staff typed a name.
+### Why HTTPS, and why it is not optional
+
+The weighbridge browser reads the indicator through the **Web Serial API**, and browsers
+only expose serial ports on a **secure origin** — `https://`, or `http://localhost`.
+
+Over plain `http://172.20.10.9:3000` the weighbridge page loads perfectly, looks completely
+normal, and its **Connect button does nothing**. That is a far worse failure than not
+loading at all: it sends the operator back to typing weights by hand, which is the one
+thing this system exists to prevent. Verified in Chrome on this network — the same page,
+the same browser, working on `localhost` and dead on the LAN address.
+
+So the server speaks HTTPS. The certificate is not about secrecy on a cable nobody is
+tapping. It is the price of reaching the scale from any machine but the server itself.
+
+### Trusting the certificate
+
+The certificate is issued by a local authority created on the laptop by `mkcert`. Nothing
+on the internet is involved and nothing expires for three years.
+
+**On the laptop, once** — this needs the admin password, so run it yourself:
+
+```bash
+mkcert -install
+```
+
+**On every other machine, once.** `dev:lan` opens a second, plain-HTTP port one number up
+(3001 by default) that exists only to hand out the certificate — a new machine cannot
+fetch it over a connection it does not yet trust, and this breaks that circle. Nothing
+else is reachable on that port.
+
+1. On the machine, open `http://<laptop-address>:3001`
+2. Press **Сертификатро гирифтан** — it downloads `zarnishon-ca.crt`
+3. Install it:
+   - **Windows**: double-click → Install Certificate → **Local Machine** → Place all
+     certificates in the store → **Trusted Root Certification Authorities**
+   - **iPhone/iPad**: Settings → Profile Downloaded → Install, then
+     Settings → General → About → **Certificate Trust Settings** → turn it on. Both steps
+     are needed; the first alone is not enough.
+   - **Android**: Settings → Security → Install from storage → CA certificate
+4. Open `https://<laptop-address>:3000` — no warning.
+
+### When the address changes
+
+The certificate names the address. Move between the router and a phone hotspot and the
+address changes, and the browser rejects a certificate that does not name what is in its
+bar. Run `npm run certs` again. The **authority** stays the same, so every machine that
+already trusts it keeps working — nothing has to be reinstalled.
+
+### What each machine can do
+
+| Machine | Reads the app | Drives the scale |
+|---|---|---|
+| The laptop itself (`localhost`) | yes | yes |
+| Windows PC, Chrome, certificate installed | yes | **yes** |
+| iPhone / iPad, any browser | yes | **no** |
+| Any browser over plain `http://<ip>` | yes | **no** |
+
+**Safari and every iOS browser have no Web Serial at all** — not a permissions problem, the
+API does not exist. Every browser on iPhone is Safari underneath, so no app changes this.
+A phone is for looking at the cash desk and the dashboard; the scale needs the PC.
+
+**Windows 7 is a real constraint worth checking before the season.** The last Chrome that
+ever ran on Windows 7 is version 109. Web Serial arrived in Chrome 89, so 109 does have it
+— but only just, and nothing about that machine will get security updates again. Check
+`chrome://version` on it before trusting it with the weighbridge. If it turns out to be
+Internet Explorer or an old Chrome, the scale will not work there whatever we do, and the
+answer is a newer machine at the weighbridge rather than a workaround.
+
+### Two things that will stop it working
+
+- **macOS firewall.** If it is on, allow incoming connections for `node`:
+  System Settings → Network → Firewall → Options. It is currently off on this laptop.
+- **The laptop sleeping.** A closed lid ends the shift for everybody. Settings → Lock
+  Screen → never for display sleep while on power, or `caffeinate -s npm run start:lan`.
 
 ---
 
@@ -173,24 +239,120 @@ it costs a reason, and every instance is listed for the owner under **Вазнҳ
 
 ---
 
-## 4. Backups
+## 4. The laptop as a server: power cuts, boot, remote access
 
-A dump is written to `./backups` every night and the last 30 are kept. **That is only half
-a backup** until a copy leaves the building:
+One command sets all of this up, and it is safe to run again on a machine that has drifted:
 
 ```bash
-# On the laptop, whenever the line is up
-rsync -az --remove-source-files ./backups/ user@vps:/srv/zarnishon-backups/
+sudo bash scripts/setup-server.sh
 ```
 
-Test a restore before the season starts, on a spare machine, from a real dump:
+### Surviving the power going out
+
+Four separate things, and the order matters — each one covers a different failure:
+
+**The battery is the UPS.** A laptop is the right machine for a building with unreliable
+power precisely because it already has one. The power goes, nothing happens, the
+weighbridge keeps weighing. Check the battery actually holds a charge before the season:
+a laptop server with a dead battery is worse than a desktop, because nobody thinks to
+look.
+
+**It shuts down cleanly at 8%** rather than being cut off mid-write. Postgres survives a
+hard cut — it is a real database, with checksums on, and it replays its log — but recovery
+on a cold laptop disk can take ten minutes, and that is ten minutes the weighbridge cannot
+weigh. The margin is free.
+
+**It starts again by itself.** `zarnishon.service` is enabled, so when the machine boots
+the server comes up with nobody in the building. It waits for Postgres to actually answer
+before starting — not merely for Docker to have started — because a laptop disk is slow
+when cold and the app would otherwise restart in a loop until the database happened to be
+ready.
+
+**The lid can be closed.** This is the single most common way a laptop server silently
+stops: somebody shuts the lid, the machine suspends, and every station says "offline".
+Suspend and hibernate are disabled outright.
+
+The one thing the script cannot do is set your BIOS. If the battery ever does go flat, the
+machine will stay off when the power returns unless the BIOS is told otherwise:
+
+> **BIOS → Power → "Restore on AC Power Loss" → Power On**
+
+Some laptops do not have this setting. With a healthy battery it does not matter.
+
+### Nothing is lost
+
+The durability is Postgres's, and it is not something to be clever about:
+
+- `fsync` and `synchronous_commit` are **on**, which is the default. Do not turn them off.
+  Every borkhat, weighing and payment is on the disk before the screen says it saved.
+- Data checksums are on, so a disk beginning to fail is noticed rather than silently
+  returning wrong weights.
+- The stations keep their own queue. A station that loses the network mid-weighing holds
+  the operation in the browser and sends it when the server comes back — power cuts at the
+  weighbridge do not lose a truck.
+
+### Backups, four times a day
+
+`zarnishon-backup.timer` runs at 00:10, 06:10, 12:10 and 18:10, keeps the last 60 dumps,
+and **verifies each one by reading it back** — a dump taken while the disk was filling up
+writes a plausible-looking file that cannot be restored, and that is exactly the backup
+you would reach for. A missed run (the machine was off) is taken as soon as it is back.
+
+Leave a USB stick in the machine mounted at `/media/zarnishon-backup` and every dump is
+copied to it automatically. For off-site, set `BACKUP_REMOTE` in `.env.production`:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec -T db \
-  pg_restore -U zarnishon -d zarnishon --clean --if-exists < backups/<file>.dump
+BACKUP_REMOTE=user@somewhere:/srv/zarnishon-backups/
+```
+
+It never fails the backup — the factory does not stop because the internet did.
+
+**Test a restore before the season starts**, on a different machine, from a real dump:
+
+```bash
+docker exec -i zarnishon-db pg_restore -U zarnishon -d zarnishon --clean --if-exists \
+  < backups/<file>.dump
 ```
 
 A backup nobody has restored is a hope, not a backup.
+
+### Reaching it from anywhere
+
+The factory has no static address and the laptop sits behind the router's NAT, so there is
+nothing to connect *to* from outside. **Tailscale** solves that without forwarding a port:
+the laptop dials out and joins a private network, and your phone and MacBook join the same
+one.
+
+```bash
+sudo tailscale up --ssh
+```
+
+Open the link it prints, sign in, and from then on — from anywhere with a connection:
+
+```bash
+ssh zarnishon@zarnishon          # the machine, by name
+```
+
+`--ssh` means Tailscale handles the authentication, so there is no password to guess and
+no key to lose. The firewall is closed to everything except the factory LAN and Tailscale,
+so **port 22 is never exposed to the internet** — which is the reason for using this rather
+than forwarding a port on the router, where the machine would be found and attacked within
+hours.
+
+You can also open the app itself remotely at `http://zarnishon:3000` once you are on the
+Tailscale network — useful for looking at the cash desk from home, and for me to help when
+something has gone wrong on site.
+
+### When something has gone wrong
+
+```bash
+systemctl status zarnishon          # is the server running?
+journalctl -u zarnishon -f          # what is it saying?
+journalctl -u zarnishon --since today | grep -i error
+docker ps                           # is the database up?
+systemctl restart zarnishon         # the usual fix
+ls -lh /opt/zarnishon/backups | tail -5
+```
 
 ---
 

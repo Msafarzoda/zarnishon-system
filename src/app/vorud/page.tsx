@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 import { asc } from "drizzle-orm";
 import { db } from "@/db/client";
 import { stations } from "@/db/schema/index";
-import { currentUser, homePathFor } from "@/lib/auth/session";
+import { currentUser, homeFor } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 import { SignInForm } from "./sign-in-form";
 
 export default async function SignInPage() {
   const user = await currentUser();
-  if (user) redirect(homePathFor(user.role));
+  if (user) redirect(homeFor(user));
 
   const rows = await db
     .select({ id: stations.id, code: stations.code, nameTg: stations.nameTg })

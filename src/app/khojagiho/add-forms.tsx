@@ -54,13 +54,17 @@ function FarmForm() {
   return (
     <form action={action} className="card p-5 space-y-4">
       <div className="grid gap-4 sm:grid-cols-3">
+        {/* The РМА first, and required: it is what identifies the farm. A name typed a
+            second way makes a second farm; a number cannot. docs/domain.md §6. */}
+        <div>
+          <label className="label" htmlFor="tin">{tg.ticket.tin}</label>
+          <input id="tin" name="tin" required inputMode="numeric"
+                 className="input-number" placeholder="5830076707" />
+          <p className="mt-1 text-xs text-ink-faint">{tg.common.tinIsIdentity}</p>
+        </div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="name">{tg.ticket.consignor}</label>
           <input id="name" name="name" required className="input" placeholder="х-д Билол-Б" />
-        </div>
-        <div>
-          <label className="label" htmlFor="tin">{tg.ticket.tin}</label>
-          <input id="tin" name="tin" className="input tabular" placeholder="5830076707" />
         </div>
         <div>
           <label className="label" htmlFor="place">{tg.ticket.loadingPlace}</label>

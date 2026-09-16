@@ -26,6 +26,8 @@ interface AwaitingTare {
 }
 
 interface Props {
+  /** A watcher — owner or accountant — sees the board but cannot weigh. */
+  readOnly?: boolean;
   /** Simulation is for rehearsing without the indicator; the server turns it off in production. */
   allowSimulation: boolean;
   season: number;
@@ -81,7 +83,7 @@ export function ScaleClient(props: Props) {
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className={`flex gap-2 ${props.readOnly ? "hidden" : ""}`}>
         <button
           type="button"
           onClick={() => setTab("depart")}
@@ -103,7 +105,7 @@ export function ScaleClient(props: Props) {
         </button>
       </div>
 
-      {tab === "arrive" ? (
+      {props.readOnly ? null : tab === "arrive" ? (
         <ArrivalForm
           {...props}
           scale={scale}
@@ -118,6 +120,29 @@ export function ScaleClient(props: Props) {
           onNotice={setNotice}
           onDone={() => router.refresh()}
         />
+      )}
+
+      {/* A watcher still needs to see what is on site, just not act on it. */}
+      {props.readOnly && props.awaitingTare.length > 0 && (
+        <ul className="space-y-2">
+          {props.awaitingTare.map((t) => (
+            <li key={t.id} className="card px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-lg font-semibold">{t.farm}</span>
+                <span className="font-mono text-sm text-brand">{t.serial}</span>
+                {t.plate && <span className="text-sm text-ink-soft">{t.plate}</span>}
+                <span className="ms-auto text-sm text-ink-faint">
+                  {tg.gate.onSiteSince} {waited(t.createdAt)}
+                </span>
+              </div>
+              <div className="mt-2">
+                <TicketProgress
+                  ticket={{ grossG: t.grossG, tareG: null, netG: null, status: "OPEN" }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
 
       {props.recentlyWeighed.length > 0 && (

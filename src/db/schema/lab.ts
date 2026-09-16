@@ -62,6 +62,15 @@ export const labAnalyses = pgTable(
 
     /** Наименование хранилища — склад / бунт / навес, as recorded on the form. */
     storageNote: text("storage_note"),
+    /**
+     * Who actually did the analysis, when the person typing it in did not.
+     *
+     * The лаборант fills in Форма №9-хл by hand and the тарозубон enters it, so `enteredBy`
+     * would otherwise read as though the тарозубон had measured the moisture himself. This
+     * carries the name off the paper form. Empty means the person who entered it is the
+     * person who did it. docs/domain.md §6.
+     */
+    analysedBy: text("analysed_by"),
     sampledAt: timestamp("sampled_at", { withTimezone: true }),
 
     createdBy: uuid("created_by")

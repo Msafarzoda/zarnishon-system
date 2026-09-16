@@ -32,6 +32,7 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
     { href: "/narkhho", label: tg.nav.prices },
     { href: "/khojagiho", label: tg.nav.farms },
     { href: "/partiyaho", label: tg.nav.batches },
+    { href: "/idora", label: tg.nav.users },
   ],
   admin: [
     { href: "/idora", label: tg.nav.users },
@@ -50,7 +51,26 @@ export function Shell({
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const nav = NAV[user.role] ?? [];
+  /**
+   * The union of every role this person holds, in the order the roles were granted, with
+   * each screen listed once. An operator running the scale, the lab and the cash desk
+   * needs all three in the bar — and needs them in a stable order, not shuffled by
+   * whichever role happened to be primary.
+   */
+  /**
+   * Somebody holding more than one operational job gets the work board first: it is the
+   * screen that says what is left to do across all of them, and it is where signing in
+   * already lands them.
+   */
+  const operational = user.roles.filter((r) =>
+    (["weigher", "lab", "cashier", "merchandiser"] as Role[]).includes(r),
+  );
+  const board: { href: string; label: string }[] =
+    operational.length > 1 ? [{ href: "/kor", label: tg.work.title }] : [];
+
+  const nav = board.concat(user.roles
+    .flatMap((r) => NAV[r] ?? []))
+    .filter((item, i, all) => all.findIndex((x) => x.href === item.href) === i);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -71,7 +91,11 @@ export function Shell({
             <ConnectionBadge />
             <span className="text-white/85">
               {user.fullName}
-              <span className="text-white/60"> · {tg.roles[user.role]}</span>
+              <span className="text-white/60">
+                {" · "}
+                {/* Every job this person is doing, not just the one they are called by. */}
+                {user.roles.map((r) => tg.roles[r]).join(" · ")}
+              </span>
               {user.stationName && <span className="text-white/60"> · {user.stationName}</span>}
             </span>
             <SignOutButton />
@@ -88,7 +112,7 @@ export function Shell({
         {/* A session started before the station became compulsory, or by someone who
             skipped the field. Everything they do will be refused, so say so once, here,
             rather than as a failure on the first truck. */}
-        {needsStation(user.role) && !user.stationId && (
+        {user.roles.some(needsStation) && !user.stationId && (
           <div className="no-print mb-5 card border-alarm bg-red-50 px-4 py-3">
             <p className="font-semibold text-alarm">{tg.auth.stationMissing}</p>
             <p className="mt-0.5 text-sm text-alarm/90">{tg.auth.stationMissingHint}</p>

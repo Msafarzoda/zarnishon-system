@@ -5,3 +5,6 @@ node_modules/
 *.tsbuildinfo
 next-env.d.ts
 coverage/
+
+# Local TLS certificates — machine-specific, and the key must never be committed.
+/certs/

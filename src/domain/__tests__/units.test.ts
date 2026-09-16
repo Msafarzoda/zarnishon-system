@@ -97,3 +97,26 @@ describe("percent parsing", () => {
     expect(bpToPercentString(900)).toBe("9.00");
   });
 });
+
+describe("somoni typed the way it is displayed", () => {
+  it("accepts the grouped form that diramToSomoniString produces", () => {
+    // The cash desk pre-fills an amount field from a displayed balance; rejecting its own
+    // output left the cashier with a correct figure on screen and a refusal under it.
+    const displayed = diramToSomoniString(19_224_313);
+    // Grouped with a non-breaking space — good typography, and the exact reason the
+    // parser could not read the formatter's own output.
+    expect(displayed).toBe("192\u00a0243.13");
+    expect(somoniStringToDiram(displayed)).toBe(19_224_313);
+  });
+
+  it("accepts a non-breaking or narrow space as a group separator", () => {
+    expect(somoniStringToDiram("2 000.50")).toBe(200_050);
+    expect(somoniStringToDiram("2 000,50")).toBe(200_050);
+  });
+
+  it("still refuses anything that is not a number", () => {
+    expect(() => somoniStringToDiram("2 000 сомонӣ")).toThrow(DomainError);
+    expect(() => somoniStringToDiram("-100")).toThrow(DomainError);
+    expect(() => somoniStringToDiram("")).toThrow(DomainError);
+  });
+});

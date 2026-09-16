@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Framer } from "../framer";
+import { encodeKeliFrame } from "@/domain/scale";
 
 const bytes = (s: string) => Uint8Array.from([...s].map((c) => c.charCodeAt(0)));
 const toledo = (digits: string) => `\x02\x20\x20\x20${digits}000000\x0d\x55`;
@@ -46,5 +47,36 @@ describe("Framer", () => {
     const f = new Framer();
     for (let i = 0; i < 50; i++) f.push(bytes("x".repeat(200)));
     expect(f.push(bytes("ST,GS,+003015kg\r\n")).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("cutting the Keli STX…ETX frame", () => {
+  const bytes = (s: string) => new Uint8Array([...s].map((c) => c.charCodeAt(0)));
+
+  it("cuts a whole frame at ETX and leaves nothing behind", () => {
+    const f = new Framer();
+    const frame = encodeKeliFrame(3015);
+    expect(f.push(bytes(frame))).toEqual([frame]);
+  });
+
+  it("waits for ETX rather than emitting half a frame", () => {
+    // Splitting 3015 mid-frame must not yield a weighing of 301.
+    const f = new Framer();
+    const frame = encodeKeliFrame(3015);
+    expect(f.push(bytes(frame.slice(0, 6)))).toEqual([]);
+    expect(f.push(bytes(frame.slice(6)))).toEqual([frame]);
+  });
+
+  it("cuts two frames arriving in one chunk", () => {
+    const f = new Framer();
+    const a = encodeKeliFrame(3015);
+    const b = encodeKeliFrame(2380);
+    expect(f.push(bytes(a + b))).toEqual([a, b]);
+  });
+
+  it("recovers after noise before the first STX", () => {
+    const f = new Framer();
+    const frame = encodeKeliFrame(635);
+    expect(f.push(bytes("\xf8\xe0" + frame))).toEqual([frame]);
   });
 });

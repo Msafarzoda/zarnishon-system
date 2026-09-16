@@ -206,3 +206,61 @@ export const payments = pgTable(
     index("payments_paid_at_idx").on(t.paidAt),
   ],
 );
+
+/**
+ * Пардохти нақдӣ — one handful of cash actually leaving the drawer for one farm.
+ *
+ * Settlement (`payments`) fixes what the factory owes; this records what it has since
+ * handed over. A farm that settles a 6 000-сомонӣ борхат and takes 2 000 today has one
+ * payment row and one disbursement row, and comes back for the rest — which is the second
+ * disbursement row. Kept apart from `payments` on purpose: a settlement happens once per
+ * ticket and is bound to a price and a lab result, while a disbursement happens any number
+ * of times, is bound to nothing but the farm, and may be zero-count for weeks.
+ *
+ * docs/domain.md §4.
+ */
+export const disbursements = pgTable(
+  "disbursements",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    /** Idempotency key from the cash desk. Replaying it returns the original row. */
+    clientUuid: uuid("client_uuid").notNull(),
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id),
+    /**
+     * The settlement this cash was handed over against, when the cashier paid at the
+     * moment of settling. Null for a later instalment, which is paid against the farm's
+     * balance as a whole rather than against any one борхат.
+     */
+    paymentId: uuid("payment_id").references(() => payments.id),
+
+    amountD: bigint("amount_d", { mode: "number" }).notNull(),
+    /** The farm's outstanding balance after this disbursement — printed on the receipt. */
+    balanceAfterD: bigint("balance_after_d", { mode: "number" }).notNull(),
+
+    receiptNo: text("receipt_no").notNull(),
+    ledgerTxId: uuid("ledger_tx_id")
+      .notNull()
+      .references(() => ledgerTx.id),
+
+    paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+    paidBy: uuid("paid_by")
+      .notNull()
+      .references(() => users.id),
+    stationId: uuid("station_id").references(() => stations.id),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id),
+    reversalReason: text("reversal_reason"),
+  },
+  (t) => [
+    uniqueIndex("disbursements_client_uuid_idx").on(t.clientUuid),
+    uniqueIndex("disbursements_receipt_idx").on(t.receiptNo),
+    index("disbursements_counterparty_idx").on(t.counterpartyId),
+    index("disbursements_payment_idx").on(t.paymentId),
+    index("disbursements_paid_at_idx").on(t.paidAt),
+  ],
+);

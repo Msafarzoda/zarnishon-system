@@ -8,15 +8,17 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
+import { ReadOnlyBanner } from "@/components/read-only-banner";
 import { ScaleClient } from "./scale-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function ScalePage() {
-  const user = await requirePageRole("weigher");
+  const user = await requirePageRole("weigher", "owner", "accountant", "merchandiser", "admin");
+  const readOnly = !canOperate(user, ["weigher"]);
 
   const season = new Date().getFullYear();
 
@@ -87,7 +89,9 @@ export default async function ScalePage() {
 
   return (
     <Shell user={user} title={`${tg.scale.title} — ${tg.app.season}-${season}`}>
+      {readOnly && <ReadOnlyBanner />}
       <ScaleClient
+        readOnly={readOnly}
         // Rehearsal without the indicator, never on the factory server.
         allowSimulation={process.env.NODE_ENV !== "production"}
         season={season}

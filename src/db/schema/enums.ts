@@ -58,6 +58,7 @@ export const accountKind = pgEnum("account_kind", [
   "CASH", // хазина — a physical cash drawer
   "BANK",
   "ADVANCE_RECEIVABLE", // қарз owed to us by one farm
+  "FARM_PAYABLE", // settled cotton money we still owe one farm
   "COTTON_PURCHASE", // expense
   "SEED_REVENUE", // income from cottonseed sales
   "OPENING_BALANCE", // equity, used only to open the books
@@ -67,6 +68,7 @@ export const ledgerTxKind = pgEnum("ledger_tx_kind", [
   "ADVANCE_ISSUED",
   "ADVANCE_REPAID_CASH",
   "COTTON_PAYMENT",
+  "CASH_DISBURSEMENT",
   "SEED_SALE_RECEIPT",
   "CASH_OPENING",
   "CASH_ADJUSTMENT",

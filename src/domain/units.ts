@@ -90,7 +90,21 @@ export const DIRAM_PER_SOMONI = 100;
 
 /** "12.50" сомонӣ as typed -> integer diram. */
 export function somoniStringToDiram(input: string): number {
-  const text = input.trim().replace(",", ".");
+  /*
+   * Group separators are stripped before parsing, and "," is read as a decimal point.
+   *
+   * `diramToSomoniString` groups thousands with a space, so a field pre-filled from a
+   * displayed amount comes back as "192 243.13" — which this used to reject, leaving the
+   * cash desk with a valid figure on screen, an error under it, and a Пул додан button
+   * offering 0.00. A cashier copying a number off the screen, or simply typing it the way
+   * it is written, must not have to know which spaces the parser tolerates. Ordinary,
+   * non-breaking and narrow non-breaking spaces are all accepted, along with the
+   * apostrophe used as a separator in some locales.
+   */
+  const text = input
+    .trim()
+    .replace(/[\s\u00a0\u202f\u2009']/g, "")
+    .replace(",", ".");
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(text)) {
     throw new DomainError(`Invalid somoni value: "${input}"`);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DomainError } from "../units";
-import { normalisePlate } from "../plate";
+import { normalisePlate, normaliseTin, isPlausibleTin } from "../plate";
 
 describe("normalisePlate", () => {
   it("accepts the four-digit form", () => {
@@ -45,5 +45,26 @@ describe("normalisePlate", () => {
 
   it("refuses an empty plate", () => {
     expect(() => normalisePlate("   ")).toThrow(DomainError);
+  });
+});
+
+describe("РМА — the farm's identity", () => {
+  it("keeps only the digits, however it was written", () => {
+    expect(normaliseTin("5830076707")).toBe("5830076707");
+    expect(normaliseTin("583 007 6707")).toBe("5830076707");
+    expect(normaliseTin("583-007-6707")).toBe("5830076707");
+    expect(normaliseTin("РМА 5830076707")).toBe("5830076707");
+  });
+
+  it("treats the same number written three ways as one farm", () => {
+    const written = ["5830076707", "583 007 6707", "РМА: 583-007-6707"];
+    expect(new Set(written.map(normaliseTin)).size).toBe(1);
+  });
+
+  it("accepts a real number and rejects a placeholder", () => {
+    expect(isPlausibleTin("5830076707")).toBe(true);
+    expect(isPlausibleTin("000000000")).toBe(false);
+    expect(isPlausibleTin("123")).toBe(false);
+    expect(isPlausibleTin("")).toBe(false);
   });
 });

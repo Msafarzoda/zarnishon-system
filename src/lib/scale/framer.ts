@@ -1,4 +1,4 @@
-import { CR, STX } from "@/domain/scale";
+import { CR, ETX, STX } from "@/domain/scale";
 
 /**
  * Cuts a serial byte stream into whole frames.
@@ -7,8 +7,14 @@ import { CR, STX } from "@/domain/scale";
  * frames in one. Handing a half-frame to the parser is how an indicator reading 3015
  * becomes a weighing of 301, so nothing is emitted until a frame is complete.
  *
- * Two shapes are handled: the binary Toledo frame the Keli D2008 emits (STX … CR plus an
- * optional checksum byte) and plain lines ending in CR/LF.
+ * Three shapes are handled:
+ *
+ *   STX … ETX   the Keli D2008 on this weighbridge — twelve bytes, checksum inside
+ *   STX … CR    the Toledo continuous frame, with an optional checksum byte after CR
+ *   … CR/LF     plain lines of text
+ *
+ * STX opens the first two, so which one it is cannot be known until the terminator turns
+ * up. Whichever comes first wins, and a frame is never emitted until it is complete.
  */
 export class Framer {
   private buffer = "";
@@ -36,7 +42,21 @@ export class Framer {
 
     // A binary frame, when STX comes before any line ending.
     if (stx !== -1 && (nl === -1 || stx < nl)) {
+      const etx = this.buffer.indexOf(String.fromCharCode(ETX), stx);
       const cr = this.buffer.indexOf(String.fromCharCode(CR), stx);
+
+      /*
+       * The Keli frame this weighbridge sends ends at ETX and carries its checksum
+       * inside, so there is nothing to wait for after it. Taken when ETX arrives first —
+       * a Toledo frame's CR would otherwise be looked for and never found here, and the
+       * buffer would fill with whole frames nobody read.
+       */
+      if (etx !== -1 && (cr === -1 || etx < cr)) {
+        const frame = this.buffer.slice(stx, etx + 1);
+        this.buffer = this.buffer.slice(etx + 1);
+        return frame;
+      }
+
       if (cr === -1) return null;
 
       // The checksum byte follows CR. Wait one byte for it, unless the next frame has

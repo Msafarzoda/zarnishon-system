@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { auditLog, counterparties, drivers, vehicles } from "@/db/schema/index";
 import { requireRole } from "@/lib/auth/session";
 import { DomainError } from "@/domain/units";
-import { isTransportOrg, normalisePlate } from "@/domain/plate";
+import { isPlausibleTin, isTransportOrg, normalisePlate, normaliseTin } from "@/domain/plate";
 import { tg } from "@/lib/i18n/tg";
 
 export async function addFarmAction(_prev: { error?: string; ok?: string }, form: FormData) {
@@ -14,12 +15,38 @@ export async function addFarmAction(_prev: { error?: string; ok?: string }, form
   const name = String(form.get("name") ?? "").trim();
   if (!name) return { error: tg.common.required };
 
+  const kind = String(form.get("kind") ?? "farm") as "farm" | "individual" | "company";
+
+  /*
+   * The РМА is the farm's identity, so it is required and unique rather than a note on
+   * the record. Two spellings of one name create two farms whose cotton, advances and
+   * balance are split between them and nobody notices; one number cannot. Normalised
+   * first, because the same number is written with spaces or dashes depending on who
+   * filled in the waybill. docs/domain.md §6.
+   */
+  const tinRaw = String(form.get("tin") ?? "").trim();
+  let tin: string | null = null;
+  if (kind === "farm") {
+    if (!tinRaw) return { error: tg.common.tinRequired };
+    if (!isPlausibleTin(tinRaw)) return { error: tg.common.tinInvalid };
+    tin = normaliseTin(tinRaw);
+
+    const [clash] = await db
+      .select({ name: counterparties.name })
+      .from(counterparties)
+      .where(eq(counterparties.tin, tin))
+      .limit(1);
+    if (clash) return { error: `${tg.common.tinTakenBy}: ${clash.name}` };
+  } else if (tinRaw) {
+    tin = normaliseTin(tinRaw);
+  }
+
   const [row] = await db
     .insert(counterparties)
     .values({
-      kind: (String(form.get("kind") ?? "farm") as "farm" | "individual" | "company"),
+      kind,
       name,
-      tin: String(form.get("tin") ?? "").trim() || null,
+      tin,
       defaultLocation: String(form.get("place") ?? "").trim() || null,
       brigadeCode: String(form.get("brigade") ?? "").trim() || null,
       phone: String(form.get("phone") ?? "").trim() || null,

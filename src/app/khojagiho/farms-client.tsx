@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { diramToSomoniString, gramsToKgString } from "@/domain/units";
+import { normaliseTin } from "@/domain/plate";
 import { tg } from "@/lib/i18n/tg";
 import { AddForms } from "./add-forms";
 
@@ -54,11 +55,14 @@ export function FarmsClient({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    // A number typed with spaces or dashes is the same number. The farm's РМА is its
+    // identity, so searching by it has to work however it was written down.
+    const digits = normaliseTin(query);
     const matched = q
       ? farms.filter(
           (f) =>
+            (digits.length > 0 && (f.tin ?? "").includes(digits)) ||
             f.name.toLowerCase().includes(q) ||
-            (f.tin ?? "").includes(q) ||
             (f.phone ?? "").includes(q) ||
             (f.place ?? "").toLowerCase().includes(q),
         )
@@ -99,7 +103,7 @@ export function FarmsClient({
       <div className="flex flex-wrap items-center gap-2">
         <input
           className="input min-w-56 flex-1"
-          placeholder={tg.account.searchFarms}
+          placeholder={`${tg.account.searchFarms} — ${tg.ticket.tin}`}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -124,9 +128,12 @@ export function FarmsClient({
                 className="card flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 transition-colors hover:border-brand/40 hover:bg-paper"
               >
                 <div className="min-w-48 flex-1">
-                  <div className="font-semibold">{f.name}</div>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-semibold">{f.name}</span>
+                    {/* The identity, not a footnote to it. */}
+                    <span className="tabular text-xs text-ink-soft">{f.tin ?? "—"}</span>
+                  </div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink-faint">
-                    {f.tin && <span className="tabular">{tg.ticket.tin} {f.tin}</span>}
                     {f.place && <span>{f.place}</span>}
                     {f.phone && <span className="tabular">{f.phone}</span>}
                   </div>

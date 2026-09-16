@@ -1,4 +1,4 @@
-import { CR, STX } from "@/domain/scale";
+import { CR, STX, encodeKeliFrame } from "@/domain/scale";
 
 /**
  * A stand-in for the Keli D2008, for testing without the weighbridge.
@@ -66,12 +66,26 @@ export function simulatedReading(
 export function runSimulator(
   targetKg: number,
   onFrame: (frame: string) => void,
-  { intervalMs = 200 }: { intervalMs?: number } = {},
+  { intervalMs = 200, format = "keli" as "keli" | "toledo" }: {
+    intervalMs?: number;
+    format?: "keli" | "toledo";
+  } = {},
 ): () => void {
   const startedAt = Date.now();
   const timer = setInterval(() => {
     const { displayedKg, motion } = simulatedReading(targetKg, Date.now() - startedAt);
-    onFrame(encodeToledoFrame(displayedKg, { motion }));
+    /*
+     * Keli by default, because that is what this weighbridge's indicator sends and a
+     * rehearsal on a different format rehearses the wrong thing. It matters here more
+     * than it looks: the Keli frame carries **no motion bit**, so the simulated settling
+     * has to be found by the number holding still — exactly as it will be on the day.
+     * Simulating Toledo would exercise a stability flag the real indicator never sends.
+     */
+    onFrame(
+      format === "keli"
+        ? encodeKeliFrame(displayedKg)
+        : encodeToledoFrame(displayedKg, { motion }),
+    );
   }, intervalMs);
   return () => clearInterval(timer);
 }

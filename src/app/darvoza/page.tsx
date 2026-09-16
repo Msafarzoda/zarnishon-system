@@ -1,15 +1,18 @@
 import { and, asc, eq, gte, inArray, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import { batches, counterparties, drivers, vehicles, weighTickets } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
+import { ReadOnlyBanner } from "@/components/read-only-banner";
 import { GateClient } from "./gate-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function GatePage() {
-  const user = await requirePageRole("guard", "weigher");
+  // The owner and the accountant may watch the gate; only the guard works it.
+  const user = await requirePageRole("guard", "weigher", "owner", "accountant", "admin");
+  const readOnly = !canOperate(user, ["guard", "weigher"]);
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -56,7 +59,9 @@ export default async function GatePage() {
 
   return (
     <Shell user={user} title={tg.gate.title}>
+      {readOnly && <ReadOnlyBanner />}
       <GateClient
+        readOnly={readOnly}
         onSite={onSite.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() }))}
         departedTodayCount={departedToday.length}
       />

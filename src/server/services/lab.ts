@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
-import { auditLog, labAnalyses, weighTickets } from "@/db/schema/index";
+import { auditLog, batches, labAnalyses, weighTickets } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
 import { deductionBp as computeDeduction } from "@/domain/weight";
 import { transition } from "@/domain/ticket";
@@ -17,6 +17,8 @@ export interface CreateAnalysisInput {
   moistureBp: number;
   trashBp: number;
   storageNote?: string;
+  /** Name off the hand-written Форма №9-хл, when someone else did the analysis. */
+  analysedBy?: string;
   sampledAt?: Date;
   labUserId: string;
 }
@@ -43,6 +45,29 @@ export async function createAnalysis(input: CreateAnalysisInput) {
     .limit(1);
   if (replay) return replay;
 
+  /*
+   * A ticket id that no longer exists — a stale queue entry, or a screen left open while
+   * the ticket was voided. Caught here so the station is told what is wrong in Tajik,
+   * instead of a foreign-key violation surfacing as an HTTP 500 that the offline queue
+   * treats as "try again later" and retries for ever.
+   */
+  if (input.ticketId) {
+    const [ticket] = await db
+      .select({ id: weighTickets.id })
+      .from(weighTickets)
+      .where(eq(weighTickets.id, input.ticketId))
+      .limit(1);
+    if (!ticket) throw new DomainError("Борхат ёфт нашуд. / Ticket not found.");
+  }
+  if (input.batchId) {
+    const [batch] = await db
+      .select({ id: batches.id })
+      .from(batches)
+      .where(eq(batches.id, input.batchId))
+      .limit(1);
+    if (!batch) throw new DomainError("Партия ёфт нашуд. / Batch not found.");
+  }
+
   const settings = await getActiveSettings();
   const computed = computeDeduction(
     { moistureBp: input.moistureBp, trashBp: input.trashBp },
@@ -67,6 +92,7 @@ export async function createAnalysis(input: CreateAnalysisInput) {
       normTrashBp: settings.norms.trashBp,
       computedDeductionBp: computed,
       storageNote: input.storageNote ?? null,
+      analysedBy: input.analysedBy?.trim() || null,
       sampledAt: input.sampledAt ?? new Date(),
       createdBy: input.labUserId,
     })

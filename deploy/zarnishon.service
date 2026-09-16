@@ -1,0 +1,52 @@
+# The factory server.
+#
+#   sudo cp deploy/zarnishon.service /etc/systemd/system/
+#   sudo systemctl enable --now zarnishon
+#
+# Postgres runs in Docker and restarts itself; this is the application. It is deliberately
+# NOT in a container: the weighbridge indicator is a serial device on this machine, and a
+# native process reads /dev/ttyUSB0 with nothing but a group membership, where a container
+# needs the device mapped in and re-mapped every time the adapter enumerates differently.
+[Unit]
+Description=ЧДММ «ЗАРНИШОН» — factory server
+Documentation=file:///opt/zarnishon/docs/deployment.md
+# Docker holds the database. Without this the app starts first, fails to connect, and
+# systemd restarts it in a loop until Docker happens to be up.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=zarnishon
+Group=zarnishon
+WorkingDirectory=/opt/zarnishon
+EnvironmentFile=/opt/zarnishon/.env.production
+
+# Wait for Postgres to actually answer, not merely for Docker to have started. A laptop
+# disk is slow when cold and the database is regularly still replaying when the app asks.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do docker exec zarnishon-db pg_isready -U zarnishon -q && exit 0; sleep 2; done; echo "database did not come up"; exit 1'
+
+ExecStart=/usr/bin/node /opt/zarnishon/server.mjs
+
+# Always come back. The one failure this must survive is the power returning at 04:00 with
+# nobody in the building.
+Restart=always
+RestartSec=5
+
+# Do not give up after repeated restarts: a database that takes ten minutes to recover
+# from an unclean shutdown would otherwise leave the app dead until somebody noticed.
+StartLimitIntervalSec=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zarnishon
+
+# Modest hardening. The app needs the database socket, the serial port and its own files.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

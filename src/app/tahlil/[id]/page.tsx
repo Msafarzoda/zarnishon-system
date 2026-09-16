@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { and, eq, isNull, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -12,7 +12,7 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { currentUser } from "@/lib/auth/session";
+import { requirePageRole } from "@/lib/auth/session";
 import { bpToPercentString, gramsToKgString } from "@/domain/units";
 import { payableWeight } from "@/domain/weight";
 import { tg } from "@/lib/i18n/tg";
@@ -43,8 +43,9 @@ export default async function CertificatePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await currentUser();
-  if (!user) redirect("/vorud");
+  await requirePageRole(
+    "lab", "merchandiser", "weigher", "cashier", "accountant", "owner", "admin",
+  );
 
   const { id } = await params;
 

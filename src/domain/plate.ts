@@ -71,3 +71,20 @@ export type TransportOrg = (typeof TRANSPORT_ORGS)[number];
 export function isTransportOrg(value: string): value is TransportOrg {
   return (TRANSPORT_ORGS as readonly string[]).includes(value);
 }
+
+/**
+ * РМА / РЯМ / ИНН — a farm's tax number, which is how a хоҷагӣ is identified.
+ *
+ * Normalised before it is stored or compared, because the same number is written with
+ * spaces, dashes or a leading letter depending on who is filling in the waybill, and two
+ * spellings of one number would create two farms. docs/domain.md §6.
+ */
+export function normaliseTin(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+/** Whether this looks like a usable tax number. Length is not fixed by law we can rely on. */
+export function isPlausibleTin(raw: string): boolean {
+  const digits = normaliseTin(raw);
+  return digits.length >= 8 && digits.length <= 14 && !/^0+$/.test(digits);
+}

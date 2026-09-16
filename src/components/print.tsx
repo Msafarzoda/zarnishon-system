@@ -16,8 +16,24 @@ import { tg } from "@/lib/i18n/tg";
 
 export const FACTORY = "ЧДММ «ЗАРНИШОН»";
 
-export function PrintSheet({ children }: { children: ReactNode }) {
-  return <div className="borkhat-sheet mx-auto max-w-[210mm] space-y-4 px-4">{children}</div>;
+/**
+ * The A4 sheet the copies are cut from.
+ *
+ * `copies` decides how tall each one is: three of them share the page on a Борхат, but a
+ * cash receipt only needs two — and left at a third of the page each, two copies printed
+ * small on a mostly blank sheet. The height is set here rather than in each copy so that
+ * the arithmetic (copies × height ≤ the 285 mm inside A4's margins) stays in one place.
+ */
+export function PrintSheet({
+  children, copies = 3,
+}: { children: ReactNode; copies?: 2 | 3 }) {
+  return (
+    <div
+      className={`borkhat-sheet sheet-of-${copies} mx-auto max-w-[210mm] space-y-4 px-4`}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function PrintPage({ children }: { children: ReactNode }) {

@@ -64,6 +64,11 @@
   .btn-secondary {
     @apply btn border border-paper-line bg-white text-ink hover:bg-paper;
   }
+  /* The unselected half of a two-way switch: still a button, but not competing with the
+     selected one for attention. */
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-soft hover:bg-paper;
+  }
   .btn-danger {
     @apply btn bg-alarm text-white hover:brightness-90;
   }
@@ -124,6 +129,33 @@
   .borkhat-sheet > * + *,
   .borkhat-sheet > :not([hidden]) ~ :not([hidden]) {
     margin-top: 0 !important;
+  }
+
+  /*
+   * 285 mm fit inside A4's 6 mm margins. Three copies at 93 mm leave 6 mm of slack; two
+   * at 140 mm leave 5 mm — so a receipt fills the page instead of sitting in its top
+   * third, and the figures on it can be read at arm's length.
+   */
+  .sheet-of-2 .print-copy {
+    height: 140mm !important;
+    font-size: 10.2pt !important;
+  }
+
+  .sheet-of-2 .print-copy table {
+    font-size: 10pt !important;
+  }
+
+  .sheet-of-2 .print-copy th,
+  .sheet-of-2 .print-copy td {
+    padding: 1.1mm 2mm !important;
+  }
+
+  .sheet-of-2 .print-copy h2 {
+    font-size: 13.5pt !important;
+  }
+
+  .sheet-of-2 .print-copy .print-net {
+    font-size: 15pt !important;
   }
 
   .print-copy {

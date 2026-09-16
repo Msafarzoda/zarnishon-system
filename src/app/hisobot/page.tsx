@@ -14,7 +14,7 @@ import {
   weighTickets,
 } from "@/db/schema/index";
 import { requirePageRole } from "@/lib/auth/session";
-import { cashOnHandD } from "@/server/services/balances";
+import { cashOnHandD, totalFarmPayableD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
 import { runAllChecks } from "@/server/services/integrity";
@@ -110,8 +110,28 @@ export default async function DashboardPage() {
     .from(weighTickets)
     .where(and(eq(weighTickets.status, "WEIGHED"), eq(weighTickets.season, season)));
 
+  /**
+   * Cotton standing in the lab is already the factory's to pay for — the sample only
+   * decides how much. Counting only lab-cleared weight showed the owner an obligation of
+   * nothing while trucks were queued, so what is coming is stated next to it, priced at
+   * the norm deduction as an estimate rather than pretended to be exact.
+   */
+  const awaitingLabG = Number(awaitingLab?.netG ?? 0);
+  // No deduction is applied here: the sample has not been taken, so the only honest
+  // figure is the most this cotton could cost — which is the one worth planning cash
+  // against. The deduction can only reduce it.
+  const pendingLiabilityD =
+    priceDPerKg !== null ? divRound(awaitingLabG * priceDPerKg, 1000) : null;
+  const totalLiabilityD =
+    estimatedLiabilityD !== null && pendingLiabilityD !== null
+      ? estimatedLiabilityD + pendingLiabilityD
+      : null;
+
   // ---- money
   const cashD = await cashOnHandD();
+  // Settled cotton the factory has not handed the cash over for. Unlike the estimate
+  // below, this is not a projection: it is money owed at a price already agreed.
+  const owedNowD = await totalFarmPayableD();
 
   const [advanceTotal] = await db
     .select({ total: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)` })
@@ -277,49 +297,113 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile label={tg.dashboard.cashOnHand} value={som(cashD)} accent />
-          <Tile
-            label={tg.dashboard.estimatedLiability}
-            value={estimatedLiabilityD !== null ? som(estimatedLiabilityD) : "—"}
-            hint={
-              priceDPerKg !== null
-                ? `${tg.price.current} ${diramToSomoniString(priceDPerKg)} ${tg.price.perKg}`
-                : tg.price.onlyOwner
-            }
-            tone={estimatedLiabilityD !== null && estimatedLiabilityD > cashD ? "warn" : undefined}
-          />
-          <Tile label={tg.dashboard.advancesOutstanding} value={som(Number(advanceTotal?.total ?? 0))} />
-          <Tile
-            label={tg.dashboard.paidToday}
-            value={som(Number(paidToday?.cashD ?? 0))}
-            hint={`${paidToday?.count ?? 0} × ${tg.ticket.title}`}
-          />
+        {/* Money first, and inside it cash against what is owed — that pair is the
+            question the owner opens this page to answer. Cotton follows, then the
+            standing settings. Unlabelled rows of equal tiles made all eight figures
+            look equally urgent. */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            {tg.dashboard.moneySection}
+          </h2>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="card border-brand bg-brand-light px-5 py-5">
+              <div className="text-sm text-brand-dark">{tg.dashboard.cashOnHand}</div>
+              <div className="tabular text-4xl font-bold text-brand-dark">{som(cashD)}</div>
+              {totalLiabilityD !== null && (
+                <div
+                  className={`mt-2 text-xs font-medium ${
+                    totalLiabilityD + owedNowD > cashD ? "text-warn" : "text-brand-dark"
+                  }`}
+                >
+                  {totalLiabilityD + owedNowD > cashD
+                    ? tg.dashboard.coverageShort
+                    : tg.dashboard.coverage}
+                </div>
+              )}
+            </div>
+
+            <div className="card px-5 py-5">
+              <div className="text-sm text-ink-soft">{tg.dashboard.estimatedLiability}</div>
+              <div
+                className={`tabular text-4xl font-bold ${
+                  estimatedLiabilityD !== null && estimatedLiabilityD > cashD ? "text-warn" : ""
+                }`}
+              >
+                {estimatedLiabilityD !== null ? som(estimatedLiabilityD) : "—"}
+              </div>
+              <div className="mt-1 text-xs text-ink-faint">
+                {priceDPerKg !== null
+                  ? `${tg.price.current} ${diramToSomoniString(priceDPerKg)} ${tg.price.perKg}`
+                  : tg.price.onlyOwner}
+              </div>
+              {/* What the lab still has to clear is money too — it just has no sample yet. */}
+              {pendingLiabilityD !== null && awaitingLabG > 0 && (
+                <div className="mt-3 border-t border-paper-line pt-2 text-sm">
+                  <span className="text-ink-soft">{tg.dashboard.liabilityPending}</span>{" "}
+                  <span className="tabular font-semibold text-warn">
+                    ≤ {som(pendingLiabilityD)}
+                  </span>
+                  <div className="mt-0.5 text-xs text-ink-faint">
+                    {tg.dashboard.liabilityTotal}{" "}
+                    <span className="tabular">{som(totalLiabilityD ?? 0)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            {/* Already agreed and already owed — not an estimate at today's price. */}
+            <Tile
+              label={tg.cash.weOwe}
+              value={som(owedNowD)}
+              hint={tg.cash.settledNotPaid}
+              tone={owedNowD > cashD ? "warn" : undefined}
+            />
+            <Tile
+              label={tg.dashboard.advancesOutstanding}
+              value={som(Number(advanceTotal?.total ?? 0))}
+            />
+            <Tile
+              label={tg.dashboard.paidToday}
+              value={som(Number(paidToday?.cashD ?? 0))}
+              hint={`${paidToday?.count ?? 0} × ${tg.ticket.title}`}
+            />
+          </div>
         </section>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Tile
-            label={tg.dashboard.cottonReceived}
-            value={kg(Number(received?.netG ?? 0))}
-            hint={`${received?.tickets ?? 0} × ${tg.ticket.title}`}
-          />
-          <Tile label={tg.dashboard.cottonPayable} value={kg(unpaidPayableG)} />
-          <Tile
-            label={tg.dashboard.unpaidFarmers}
-            value={String(unpaidFarms.size)}
-            hint={`${unpaidRows.length} × ${tg.ticket.title}`}
-          />
-          <Tile
-            label={tg.lab.title}
-            value={kg(Number(awaitingLab?.netG ?? 0))}
-            hint={`${awaitingLab?.tickets ?? 0} × ${tg.ticket.title} — ${tg.cash.notAnalysed}`}
-            tone={Number(awaitingLab?.tickets ?? 0) > 0 ? "warn" : undefined}
-          />
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            {tg.dashboard.cottonSection}
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Tile
+              label={tg.dashboard.cottonReceived}
+              value={kg(Number(received?.netG ?? 0))}
+              hint={`${received?.tickets ?? 0} × ${tg.ticket.title}`}
+            />
+            <Tile label={tg.dashboard.cottonPayable} value={kg(unpaidPayableG)} />
+            <Tile
+              label={tg.dashboard.unpaidFarmers}
+              value={String(unpaidFarms.size)}
+              hint={`${unpaidRows.length} × ${tg.ticket.title}`}
+            />
+            <Tile
+              label={tg.lab.title}
+              value={kg(awaitingLabG)}
+              hint={`${awaitingLab?.tickets ?? 0} × ${tg.ticket.title} — ${tg.cash.notAnalysed}`}
+              tone={Number(awaitingLab?.tickets ?? 0) > 0 ? "warn" : undefined}
+            />
+          </div>
         </section>
 
         <section className="card p-4">
-          <h2 className="mb-2 text-sm font-semibold text-ink-soft">{tg.lab.deduction}</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            {tg.dashboard.settingsSection}
+          </h2>
           <p className="text-sm">
+            <span className="text-ink-soft">{tg.lab.deduction}:</span>{" "}
             {settings.deductionMode === "TOTAL"
               ? `${tg.lab.moisture} + ${tg.lab.trash}`
               : `${tg.lab.moisture} > ${bpToPercentString(settings.norms.moistureBp, 0)} % · ` +

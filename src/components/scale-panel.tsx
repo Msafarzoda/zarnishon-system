@@ -102,6 +102,11 @@ export function ScalePanel({
         >
           {tg.scale.connectScale}
         </button>
+        {/* Offered exactly here: the moment connecting did not work is the moment somebody
+            needs to see whether the indicator is saying anything at all. */}
+        <a href="/tarozu/sanjish" className="mt-2 block text-center text-sm text-brand underline">
+          {tg.scale.checkTitle}
+        </a>
         {allowSimulation && <SimulateControls scale={scale} />}
       </div>
     );
@@ -176,7 +181,11 @@ function Diagnostics({ scale }: { scale: ScaleState }) {
         {tg.scale.diagnostics}
         {scale.detected && (
           <span className="ms-2 font-medium">
-            {scale.detected.kind === "toledo" ? "Toledo / Keli" : scale.detected.protocol.id}
+            {scale.detected.kind === "keli"
+              ? "Keli D2008"
+              : scale.detected.kind === "toledo"
+                ? "Toledo continuous"
+                : scale.detected.protocol.id}
           </span>
         )}
       </summary>

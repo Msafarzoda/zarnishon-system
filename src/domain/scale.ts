@@ -192,6 +192,7 @@ export function isSettled(
  * weight, because it looks exactly like a real one.
  */
 export const STX = 0x02;
+export const ETX = 0x03;
 export const CR = 0x0d;
 
 export interface ToledoReading extends ScaleReading {
@@ -259,6 +260,8 @@ export function describeFrame(frame: string): string {
 // ------------------------------------------------------------------ detection
 
 export type DetectedProtocol =
+  /** The Keli D2008 on this weighbridge: STX, sign, seven digits, checksum, ETX. */
+  | { kind: "keli" }
   | { kind: "toledo" }
   | { kind: "line"; protocol: ScaleProtocol };
 
@@ -272,6 +275,12 @@ export type DetectedProtocol =
  * a single truck is weighed on it.
  */
 export function detectProtocol(frames: readonly string[]): DetectedProtocol | null {
+  // Tried before the text protocols: a binary frame can contain digits that a loose text
+  // pattern would happily match, and reading it as text would give a plausible wrong
+  // number rather than an obvious failure.
+  const keliHits = frames.filter((f) => parseKeliStxEtx(f) !== null).length;
+  if (keliHits >= 2) return { kind: "keli" };
+
   const toledoHits = frames.filter((f) => parseToledoContinuous(f) !== null).length;
 
   let best: { protocol: ScaleProtocol; hits: number } | null = null;
@@ -287,7 +296,142 @@ export function detectProtocol(frames: readonly string[]): DetectedProtocol | nu
 
 /** Read one frame with whichever protocol was detected. */
 export function readFrame(frame: string, detected: DetectedProtocol): ScaleReading | null {
-  return detected.kind === "toledo"
-    ? parseToledoContinuous(frame)
-    : parseScaleFrame(frame, detected.protocol);
+  switch (detected.kind) {
+    case "keli":
+      return parseKeliStxEtx(frame);
+    case "toledo":
+      return parseToledoContinuous(frame);
+    default:
+      return parseScaleFrame(frame, detected.protocol);
+  }
+}
+
+/**
+ * What the port is actually doing, from the evidence. A pure function so the commissioning
+ * screen and its tests agree on what each symptom means.
+ *
+ * Every one of these looks identical to an operator — the weight simply never appears —
+ * and every one has a different fix. Naming them is the difference between "the scale is
+ * broken" and "the indicator is not in continuous mode".
+ */
+export type ScaleDiagnosis =
+  /** No port open yet. */
+  | "not-connected"
+  /** Port open, not one byte has arrived. Cable, port, or the indicator is not sending. */
+  | "no-bytes"
+  /** Bytes are arriving but no frame boundary is ever found — almost always the baud rate. */
+  | "bytes-no-frames"
+  /** Whole frames are being cut, but none matches a protocol we know. */
+  | "frames-no-parse"
+  /** Frames parse and weights are coming through. */
+  | "streaming";
+
+export function diagnoseScale(evidence: {
+  portOpen: boolean;
+  bytesReceived: number;
+  framesCut: number;
+  readingsParsed: number;
+}): ScaleDiagnosis {
+  if (!evidence.portOpen) return "not-connected";
+  if (evidence.bytesReceived === 0) return "no-bytes";
+  if (evidence.framesCut === 0) return "bytes-no-frames";
+  if (evidence.readingsParsed === 0) return "frames-no-parse";
+  return "streaming";
+}
+
+/**
+ * A chunk of bytes rendered so a person can look at it: printable ASCII as itself, control
+ * and high bytes as two-digit hex in angle brackets.
+ *
+ * At the wrong baud rate the stream is not text at all, and a screen that only prints
+ * printable characters shows a convincing-looking blank. The hex is the evidence.
+ */
+export function describeBytes(bytes: readonly number[]): string {
+  return bytes
+    .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : `<${b.toString(16).padStart(2, "0")}>`))
+    .join("");
+}
+
+// ------------------------------------------------- Keli D2008, STX…ETX frame
+
+/**
+ * The frame this factory's Keli D2008 actually emits, confirmed against the indicator:
+ *
+ *   STX  sign  d d d d d d d  c c  ETX
+ *   02   +/-   seven digits   XOR  03
+ *
+ * Twelve bytes. The weight is the seven digits with leading zeros stripped; the two
+ * characters before ETX are the XOR of the eight bytes between STX and them — the sign
+ * and the digits — written as hex.
+ *
+ * **This frame says nothing about stability.** There is no motion bit, so `stabilityKnown`
+ * is false and settling is decided by the number holding still across several frames.
+ * That is weaker than an indicator's own motion flag and it is why the window is exact
+ * rather than tolerant: at ~5 frames a second, five identical readings is roughly a
+ * second of genuine stillness, and a truck rocking on its springs does not produce that.
+ *
+ * A frame failing its checksum is discarded, never repaired. A corrupted weight is worse
+ * than no weight, because it looks exactly like a real one.
+ */
+export interface KeliReading extends ScaleReading {
+  checksumOk: boolean;
+  /** The sign as sent. Negative readings are real — a platform can read below zero. */
+  negative: boolean;
+}
+
+/** Length of the whole frame, STX and ETX included. */
+const KELI_FRAME_LEN = 12;
+
+export function parseKeliStxEtx(
+  frame: string,
+  { unit = "kg" as ScaleUnit } = {},
+): KeliReading | null {
+  if (frame.length !== KELI_FRAME_LEN) return null;
+  if (frame.charCodeAt(0) !== STX) return null;
+  if (frame.charCodeAt(KELI_FRAME_LEN - 1) !== ETX) return null;
+
+  const sign = frame[1]!;
+  if (sign !== "+" && sign !== "-") return null;
+
+  const digits = frame.slice(2, 9);
+  if (!/^\d{7}$/.test(digits)) return null;
+
+  const declared = frame.slice(9, 11);
+  if (!/^[0-9a-fA-F]{2}$/.test(declared)) return null;
+
+  // XOR of the sign and the seven digits — the eight bytes between STX and the checksum.
+  let xor = 0;
+  for (let i = 1; i <= 8; i++) xor ^= frame.charCodeAt(i);
+  const checksumOk = xor === parseInt(declared, 16);
+  if (!checksumOk) return null;
+
+  const magnitude = Number(digits);
+  if (!Number.isFinite(magnitude)) return null;
+
+  const weightG = (sign === "-" ? -1 : 1) * magnitude * UNIT_TO_GRAMS[unit];
+
+  return {
+    weightG,
+    // No motion bit in this frame: nothing here may be read as "the platform has settled".
+    stable: false,
+    stabilityKnown: false,
+    negative: sign === "-",
+    checksumOk: true,
+    raw: frame,
+  };
+}
+
+/** The checksum an indicator should send for a given sign and digits. For tests and tools. */
+export function keliChecksum(signAndDigits: string): string {
+  let xor = 0;
+  for (let i = 0; i < signAndDigits.length; i++) xor ^= signAndDigits.charCodeAt(i);
+  return xor.toString(16).toUpperCase().padStart(2, "0");
+}
+
+/** Builds a well-formed frame. Used by the simulator and by the tests. */
+export function encodeKeliFrame(kg: number): string {
+  const negative = kg < 0;
+  const digits = String(Math.abs(Math.round(kg))).padStart(7, "0").slice(-7);
+  const body = `${negative ? "-" : "+"}${digits}`;
+  return `${String.fromCharCode(STX)}${body}${keliChecksum(body)}${String.fromCharCode(ETX)}`;
 }

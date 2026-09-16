@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  describeBytes,
   detectProtocol,
+  diagnoseScale,
   isSettled,
   readFrame,
   type DetectedProtocol,
@@ -72,6 +74,26 @@ export interface ScaleState {
   detected: DetectedProtocol | null;
   /** Last few raw frames, so a human can check the port against the indicator display. */
   frames: string[];
+
+  /**
+   * Byte-level evidence, for the moment somebody has just wired the cable up and wants to
+   * know whether the indicator is saying anything at all.
+   *
+   * "No weight on screen" has four completely different causes — dead cable, wrong port,
+   * wrong baud rate, unrecognised format — and they are indistinguishable without these.
+   * A port that is open and silent looks exactly like a port carrying perfect frames
+   * nobody can parse, and the fixes have nothing in common.
+   */
+  bytesReceived: number;
+  /** Whole frames the framer has cut out of the stream. */
+  framesCut: number;
+  /** Frames that produced a weight. */
+  readingsParsed: number;
+  /** When the last byte arrived, so a stream that has stopped can be told from one that never started. */
+  lastByteAt: number | null;
+  /** The most recent bytes rendered readably — hex for anything unprintable. */
+  rawSample: string;
+
   error: string | null;
 }
 
@@ -91,9 +113,15 @@ export function useScale() {
     held: null,
     detected: null,
     frames: [],
+    bytesReceived: 0,
+    framesCut: 0,
+    readingsParsed: 0,
+    lastByteAt: null,
+    rawSample: "",
     error: null,
   });
 
+  const counts = useRef({ bytes: 0, frames: 0, readings: 0 });
   const portRef = useRef<SerialPort | null>(null);
   const stopSimulator = useRef<(() => void) | null>(null);
   const stopRef = useRef(false);
@@ -133,6 +161,7 @@ export function useScale() {
 
     const reading = readFrame(frame, detectedRef.current);
     if (!reading) return;
+    counts.current.readings += 1;
 
     recent.current = [...recent.current, reading].slice(-HISTORY);
     const settled = isSettled(recent.current);
@@ -192,8 +221,29 @@ export function useScale() {
           if (done || stopRef.current) break;
           if (!value) continue;
 
+          /*
+           * Counted before anything is parsed. Bytes arriving is the one fact that
+           * separates a dead cable from every other fault, and it holds even when not a
+           * single frame can be made sense of.
+           */
+          counts.current.bytes += value.length;
+          const sample = describeBytes([...value].slice(-48));
+          const at = Date.now();
+
+          const cut = framer.push(value);
+          counts.current.frames += cut.length;
+
+          setState((s) => ({
+            ...s,
+            bytesReceived: counts.current.bytes,
+            framesCut: counts.current.frames,
+            readingsParsed: counts.current.readings,
+            lastByteAt: at,
+            rawSample: sample,
+          }));
+
           // Identify the indicator from its first frames rather than assuming.
-          for (const frame of framer.push(value)) ingest(frame);
+          for (const frame of cut) ingest(frame);
         }
       } catch (err) {
         setState((s) => ({
@@ -225,7 +275,12 @@ export function useScale() {
       detectedRef.current = null;
       sample.current = [];
       recent.current = [];
-      setState((s) => ({ ...s, status: "listening" }));
+      counts.current = { bytes: 0, frames: 0, readings: 0 };
+      setState((s) => ({
+        ...s,
+        status: "listening",
+        bytesReceived: 0, framesCut: 0, readingsParsed: 0, lastByteAt: null, rawSample: "",
+      }));
       void pump(port);
     },
     [pump],
@@ -267,6 +322,7 @@ export function useScale() {
       ...s,
       status: "disconnected", simulated: false, reading: null, settled: false,
       held: null, detected: null, frames: [], error: null,
+      bytesReceived: 0, framesCut: 0, readingsParsed: 0, lastByteAt: null, rawSample: "",
     }));
   }, []);
 
@@ -287,5 +343,16 @@ export function useScale() {
     };
   }, [open]);
 
-  return { ...state, connect, disconnect, simulate, release };
+  /*
+   * Derived rather than stored: it is a reading of the evidence, and storing it would let
+   * it drift out of step with the counters it is a reading of.
+   */
+  const diagnosis = diagnoseScale({
+    portOpen: state.status === "listening" || state.status === "streaming",
+    bytesReceived: state.bytesReceived,
+    framesCut: state.framesCut,
+    readingsParsed: state.readingsParsed,
+  });
+
+  return { ...state, diagnosis, connect, disconnect, simulate, release };
 }

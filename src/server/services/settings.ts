@@ -7,6 +7,8 @@ export interface ActiveSettings {
   deductionMode: DeductionMode;
   norms: DeductionNorms;
   massBalanceToleranceBp: number;
+  /** Diram a farm may borrow per kg of cotton in hand. docs/domain.md §4. */
+  advanceRateDPerKg: number;
 }
 
 /** The live settings are simply the most recently inserted row — nothing is updated. */
@@ -26,5 +28,6 @@ export async function getActiveSettings(): Promise<ActiveSettings> {
     deductionMode: row.deductionMode as DeductionMode,
     norms: { moistureBp: row.normMoistureBp, trashBp: row.normTrashBp },
     massBalanceToleranceBp: row.massBalanceToleranceBp,
+    advanceRateDPerKg: row.advanceRateDPerKg,
   };
 }

@@ -8,6 +8,7 @@ import {
   buildAdvanceIssuedTx,
   buildAdvanceRepaidCashTx,
   buildCottonPaymentTx,
+  buildDisbursementTx,
   buildReversalTx,
   buildSeedSaleReceiptTx,
 } from "../ledger";
@@ -15,6 +16,7 @@ import {
 const ACC = {
   cashAccountId: "cash",
   cottonPurchaseAccountId: "cotton",
+  farmPayableAccountId: "payable-bilol",
   advanceAccountId: "advance-bilol",
   seedRevenueAccountId: "seed",
 };
@@ -48,11 +50,16 @@ describe("cotton payment posting", () => {
     outstandingAdvanceD: 0,
   });
 
-  it("debits the purchase and credits only the cash actually handed over", () => {
+  it("debits the purchase and credits what the farm may come and collect", () => {
     const tx = buildCottonPaymentTx(settlement, ACC, "Борхат T1-2026-000046");
     expect(balanceOf(tx.entries, "cotton")).toBe(785_813);
-    expect(balanceOf(tx.entries, "cash")).toBe(-785_813);
+    expect(balanceOf(tx.entries, "payable-bilol")).toBe(-785_813);
     expect(tx.entries).toHaveLength(2);
+  });
+
+  it("moves no cash: settling says what is owed, not what was handed over", () => {
+    const tx = buildCottonPaymentTx(settlement, ACC, "Борхат T1-2026-000046");
+    expect(balanceOf(tx.entries, "cash")).toBe(0);
   });
 
   it("splits the credit when an advance is recovered", () => {
@@ -64,11 +71,11 @@ describe("cotton payment posting", () => {
     });
     const tx = buildCottonPaymentTx(withAdvance, ACC, "Борхат T1-2026-000046");
     expect(balanceOf(tx.entries, "cotton")).toBe(785_813);
-    expect(balanceOf(tx.entries, "cash")).toBe(-485_813);
+    expect(balanceOf(tx.entries, "payable-bilol")).toBe(-485_813);
     expect(balanceOf(tx.entries, "advance-bilol")).toBe(-300_000);
   });
 
-  it("emits no cash entry at all when the advance swallows the whole ticket", () => {
+  it("emits no payable entry at all when the advance swallows the whole ticket", () => {
     const swallowed = settleTicket({
       netG: 635_000,
       deductionBp: 100,
@@ -77,7 +84,7 @@ describe("cotton payment posting", () => {
     });
     const tx = buildCottonPaymentTx(swallowed, ACC, "full offset");
     expect(tx.entries.map((e) => e.accountId).sort()).toEqual(["advance-bilol", "cotton"]);
-    expect(balanceOf(tx.entries, "cash")).toBe(0);
+    expect(balanceOf(tx.entries, "payable-bilol")).toBe(0);
   });
 
   it("refuses to recover an advance without a farm advance account", () => {
@@ -90,7 +97,7 @@ describe("cotton payment posting", () => {
     expect(() =>
       buildCottonPaymentTx(
         withAdvance,
-        { cashAccountId: "cash", cottonPurchaseAccountId: "cotton" },
+        { cottonPurchaseAccountId: "cotton", farmPayableAccountId: "payable-bilol" },
         "no advance account",
       ),
     ).toThrow(/no advance account/);
@@ -104,6 +111,41 @@ describe("cotton payment posting", () => {
         "tampered",
       ),
     ).toThrow(/internally inconsistent/);
+  });
+});
+
+describe("cash disbursement", () => {
+  it("takes the money out of the drawer and off what we owe", () => {
+    const tx = buildDisbursementTx(200_000, ACC, "х-д Билол-Б");
+    expect(balanceOf(tx.entries, "payable-bilol")).toBe(200_000);
+    expect(balanceOf(tx.entries, "cash")).toBe(-200_000);
+  });
+
+  it("settling a ticket and paying part of it leaves the rest owed", () => {
+    // 6 000 сомонӣ of cotton, 2 000 handed over — the shape the cash desk asked for.
+    const settled = settleTicket({
+      netG: 1_000_000,
+      deductionBp: 0,
+      priceDPerKg: 600,
+      outstandingAdvanceD: 0,
+    });
+    expect(settled.cashPayableD).toBe(600_000);
+
+    const settlementTx = buildCottonPaymentTx(settled, ACC, "settle");
+    const payout = buildDisbursementTx(200_000, ACC, "part payment");
+    const both: DraftEntry[] = [...settlementTx.entries, ...payout.entries];
+
+    expect(balanceOf(both, "payable-bilol")).toBe(-400_000); // still owed
+    expect(balanceOf(both, "cash")).toBe(-200_000); // only what was handed over
+    expect(balanceOf(both, "cotton")).toBe(600_000);
+  });
+
+  it("refuses a disbursement of nothing", () => {
+    expect(() => buildDisbursementTx(0, ACC, "nothing")).toThrow(DomainError);
+  });
+
+  it("refuses a negative disbursement", () => {
+    expect(() => buildDisbursementTx(-1, ACC, "negative")).toThrow(DomainError);
   });
 });
 
@@ -178,9 +220,16 @@ describe("cash on hand is always derived", () => {
       outstandingAdvanceD: 300_000,
     });
     entries.push(...buildCottonPaymentTx(s, ACC, "Борхат №46").entries);
+    // settling moved no cash — the drawer is still untouched by борхат №46
+    expect(balanceOf(entries, "cash")).toBe(5_500_000);
+    expect(balanceOf(entries, "payable-bilol")).toBe(-485_813);
+
+    // the farm collects it, and only now does the cash leave
+    entries.push(...buildDisbursementTx(485_813, ACC, "Пардохт — Билол-Б").entries);
 
     // 2 000 000 − 500 000 + 4 000 000 − 485 813
     expect(balanceOf(entries, "cash")).toBe(5_014_187);
+    expect(balanceOf(entries, "payable-bilol")).toBe(0);
     // the farm took 5 000, 3 000 came back as cotton -> 2 000 still outstanding
     expect(balanceOf(entries, "advance-bilol")).toBe(200_000);
     // and the books as a whole are flat

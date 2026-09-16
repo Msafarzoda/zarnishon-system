@@ -9,16 +9,18 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { getActiveSettings } from "@/server/services/settings";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
+import { ReadOnlyBanner } from "@/components/read-only-banner";
 import { LabClient } from "./lab-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function LabPage() {
-  const user = await requirePageRole("lab");
+  const user = await requirePageRole("lab", "owner", "accountant", "merchandiser", "admin");
+  const readOnly = !canOperate(user, ["lab"]);
 
   const season = new Date().getFullYear();
   const settings = await getActiveSettings();
@@ -75,7 +77,9 @@ export default async function LabPage() {
 
   return (
     <Shell user={user} title={`${tg.lab.title} — ${tg.lab.formCode}`}>
+      {readOnly && <ReadOnlyBanner />}
       <LabClient
+        readOnly={readOnly}
         settings={settings}
         waiting={waiting.map((r) => ({
           ...r,

@@ -4,6 +4,7 @@ import {
   advances,
   batches,
   counterparties,
+  disbursements,
   payments,
   users,
   vehicles,
@@ -11,7 +12,7 @@ import {
 } from "@/db/schema/index";
 import { divRound } from "@/domain/units";
 import { payableWeight } from "@/domain/weight";
-import { outstandingAdvanceD } from "./balances";
+import { farmPayableD, outstandingAdvanceD } from "./balances";
 
 /**
  * Ҳисоби хоҷагӣ — one farm's account, as a statement.
@@ -28,7 +29,7 @@ import { outstandingAdvanceD } from "./balances";
  * a settled payment is history and must not change when the price does.
  */
 
-export type StatementKind = "delivery" | "advance" | "payment";
+export type StatementKind = "delivery" | "advance" | "payment" | "disbursement";
 
 export interface StatementRow {
   kind: StatementKind;
@@ -37,6 +38,8 @@ export interface StatementRow {
   serial: string | null;
   ticketId: string | null;
   paymentId: string | null;
+  /** The cash receipt, on a disbursement row. */
+  disbursementId: string | null;
   note: string | null;
 
   /** Cotton delivered, grams. */
@@ -55,6 +58,8 @@ export interface StatementRow {
   cashD: number | null;
   /** Advance handed out, diram. */
   advanceIssuedD: number | null;
+  /** What the farm still had coming after a cash payout. */
+  payableBalanceD: number | null;
 
   /** The farm's outstanding advance after this row. */
   advanceBalanceD: number;
@@ -77,8 +82,15 @@ export interface FarmStatement {
   advanceRecoveredD: number;
   advanceOutstandingD: number;
 
+  /** What the settlements came to, before any cash changed hands. */
   grossPaidD: number;
+  /** Cash that has actually reached the farm — settlements and later instalments alike. */
   cashPaidD: number;
+  /**
+   * Settled cotton the farm has not been handed the cash for. Read from the ledger, so
+   * it is the same number the cash desk pays against — not a total added up here.
+   */
+  owedToFarmD: number;
 
   /** Today's valuation of the unpaid weight — an estimate, not a debt. */
   unpaidValueD: number | null;
@@ -144,11 +156,40 @@ export async function farmStatement(
       cashPayableD: payments.cashPayableD,
       reversedAt: payments.reversedAt,
       cashier: users.fullName,
+      /**
+       * Settled before settlement and disbursement were separated, when paying *was*
+       * settling and the whole amount went straight out of the drawer. Told apart by what
+       * the transaction posted — no FARM_PAYABLE leg — rather than by a date, so an old
+       * payment is never read as money the farm is still waiting for.
+       */
+      legacyCashPaid: raw<boolean>`NOT EXISTS (
+        SELECT 1 FROM ledger_entries e
+        JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE e.tx_id = payments.ledger_tx_id AND a.kind = 'FARM_PAYABLE'
+      )`,
     })
     .from(payments)
     .innerJoin(weighTickets, eq(weighTickets.id, payments.ticketId))
     .leftJoin(users, eq(users.id, payments.paidBy))
     .where(eq(payments.counterpartyId, farm.id));
+
+  // Cash that actually reached the farm, which since the settlement/disbursement split is
+  // a separate list from what was settled. docs/domain.md §4.
+  const payouts = await db
+    .select({
+      id: disbursements.id,
+      receiptNo: disbursements.receiptNo,
+      paidAt: disbursements.paidAt,
+      amountD: disbursements.amountD,
+      balanceAfterD: disbursements.balanceAfterD,
+      paymentId: disbursements.paymentId,
+      note: disbursements.note,
+      reversedAt: disbursements.reversedAt,
+      cashier: users.fullName,
+    })
+    .from(disbursements)
+    .leftJoin(users, eq(users.id, disbursements.paidBy))
+    .where(eq(disbursements.counterpartyId, farm.id));
 
   const lent = await db
     .select({
@@ -169,6 +210,8 @@ export async function farmStatement(
       at: new Date(t.at),
       serial: t.serial,
       ticketId: t.id,
+      disbursementId: null,
+      payableBalanceD: null,
       paymentId: null,
       note: [t.plate, t.batchNumber !== null ? `№${t.batchNumber}` : null]
         .filter(Boolean)
@@ -204,7 +247,31 @@ export async function farmStatement(
       advanceOffsetD: null,
       cashD: null,
       advanceIssuedD: a.principalD,
+      disbursementId: null,
+      payableBalanceD: null,
       reversed: false,
+    });
+  }
+
+  for (const d of payouts) {
+    events.push({
+      kind: "disbursement",
+      at: d.paidAt,
+      serial: d.receiptNo,
+      ticketId: null,
+      paymentId: d.paymentId,
+      disbursementId: d.id,
+      note: d.note ?? d.cashier,
+      netG: null,
+      payableG: null,
+      deductionBp: null,
+      priceDPerKg: null,
+      grossAmountD: null,
+      advanceOffsetD: null,
+      cashD: d.amountD,
+      advanceIssuedD: null,
+      payableBalanceD: d.balanceAfterD,
+      reversed: d.reversedAt !== null,
     });
   }
 
@@ -215,6 +282,7 @@ export async function farmStatement(
       serial: p.serial,
       ticketId: p.ticketId,
       paymentId: p.id,
+      disbursementId: null,
       note: p.cashier,
       netG: null,
       payableG: p.payableG,
@@ -222,8 +290,13 @@ export async function farmStatement(
       priceDPerKg: p.priceDPerKg,
       grossAmountD: p.grossAmountD,
       advanceOffsetD: p.advanceOffsetD,
-      cashD: p.cashPayableD,
+      // A settlement decides what the farm is owed; the cash it actually received is the
+      // disbursement row(s) beside it. Putting the payable here again would count the
+      // same money twice down the column — except for the old rows, which have no
+      // disbursement beside them because the cash left with the settlement.
+      cashD: p.legacyCashPaid ? p.cashPayableD : null,
       advanceIssuedD: null,
+      payableBalanceD: null,
       reversed: p.reversedAt !== null,
     });
   }
@@ -272,7 +345,11 @@ export async function farmStatement(
     advanceRecoveredD: live.reduce((n, p) => n + p.advanceOffsetD, 0),
     advanceOutstandingD: await outstandingAdvanceD(farm.id),
     grossPaidD: live.reduce((n, p) => n + p.grossAmountD, 0),
-    cashPaidD: live.reduce((n, p) => n + p.cashPayableD, 0),
+    // Cash the farm has in hand, not cash it is entitled to.
+    cashPaidD:
+      payouts.filter((d) => !d.reversedAt).reduce((n, d) => n + d.amountD, 0) +
+      live.filter((p) => p.legacyCashPaid).reduce((n, p) => n + p.cashPayableD, 0),
+    owedToFarmD: await farmPayableD(farm.id),
     unpaidValueD:
       priceDPerKg !== null ? divRound(unpaidPayableG * priceDPerKg, 1000) : null,
     priceDPerKg,

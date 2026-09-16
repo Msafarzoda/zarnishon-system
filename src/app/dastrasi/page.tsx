@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { currentUser, homePathFor } from "@/lib/auth/session";
+import { currentUser, homeFor } from "@/lib/auth/session";
 import { tg } from "@/lib/i18n/tg";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /** Shown when a signed-in user opens a section their role does not cover. */
 export default async function ForbiddenPage() {
   const user = await currentUser();
-  const home = user ? homePathFor(user.role) : "/vorud";
+  const home = user ? homeFor(user) : "/vorud";
 
   return (
     <main className="min-h-screen grid place-items-center bg-paper px-4">

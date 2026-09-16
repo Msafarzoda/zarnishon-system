@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import {
   batches,
   counterparties,
+  disbursements,
   ledgerAccounts,
   ledgerEntries,
   payments,
@@ -11,18 +12,23 @@ import {
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
-import { requirePageRole } from "@/lib/auth/session";
-import { cashOnHandD } from "@/server/services/balances";
+import { canOperate, requirePageRole } from "@/lib/auth/session";
+import { cashOnHandD, totalFarmPayableD } from "@/server/services/balances";
+import { getActiveSettings } from "@/server/services/settings";
+import { collateralFor } from "@/domain/lending";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { priceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
+import { ReadOnlyBanner } from "@/components/read-only-banner";
 import { CashClient } from "./cash-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function CashDeskPage() {
-  const user = await requirePageRole("cashier");
+  // The owner and the accountant may read the cash desk; only the cashier pays from it.
+  const user = await requirePageRole("cashier", "owner", "accountant", "admin");
+  const readOnly = !canOperate(user, ["cashier"]);
 
   const season = new Date().getFullYear();
   const now = new Date();
@@ -145,17 +151,158 @@ export default async function CashDeskPage() {
     .orderBy(desc(payments.paidAt))
     .limit(100);
 
-  const farmList = await db
-    .select({ id: counterparties.id, name: counterparties.name })
+  const settings = await getActiveSettings();
+
+  /**
+   * The cash desk's real subject is the farm, not the борхат. A farm delivers four or five
+   * times and comes in once, months later, asking for an amount — so every farm the desk
+   * might deal with is listed with the three numbers that answer it: what it has standing
+   * in our warehouse, what of that the lab has cleared and can therefore be sold today,
+   * and what it owes us. docs/domain.md §4.
+   *
+   * Tables are named explicitly inside the subqueries — interpolating a Drizzle column
+   * into a raw template renders it unqualified and collides with the join.
+   */
+  const farmRows = await db
+    .select({
+      id: counterparties.id,
+      name: counterparties.name,
+      tin: counterparties.tin,
+      phone: counterparties.phone,
+      /** Нетто in our warehouse, unsettled: weighed or analysed, not paid, not void. */
+      inHandG: raw<string>`COALESCE((
+        SELECT SUM(t.net_g) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id
+          AND t.status IN ('WEIGHED', 'ANALYSED')
+      ), 0)`,
+      /** Of that, what the lab has cleared — the only part that can be settled today. */
+      readyG: raw<string>`COALESCE((
+        SELECT SUM(t.net_g) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
+      ), 0)`,
+      readyTickets: raw<string>`COALESCE((
+        SELECT COUNT(*) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id AND t.status = 'ANALYSED'
+      ), 0)`,
+      atLabG: raw<string>`COALESCE((
+        SELECT SUM(t.net_g) FROM weigh_tickets t
+        WHERE t.consignor_id = counterparties.id AND t.status = 'WEIGHED'
+      ), 0)`,
+      advanceD: raw<string>`COALESCE((
+        SELECT SUM(e.amount_d) FROM ledger_entries e
+        JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE a.kind = 'ADVANCE_RECEIVABLE' AND a.counterparty_id = counterparties.id
+      ), 0)`,
+      owedD: raw<string>`COALESCE((
+        SELECT -SUM(e.amount_d) FROM ledger_entries e
+        JOIN ledger_accounts a ON a.id = e.account_id
+        WHERE a.kind = 'FARM_PAYABLE' AND a.counterparty_id = counterparties.id
+      ), 0)`,
+    })
     .from(counterparties)
-    .where(and(eq(counterparties.isActive, true)))
+    .where(eq(counterparties.isActive, true))
     .orderBy(asc(counterparties.name));
+
+  const farmList = farmRows.map((f) => {
+    const inHandG = Number(f.inHandG);
+    const advanceD = Math.max(0, Number(f.advanceD));
+    const collateral = collateralFor({
+      cottonInHandG: inHandG,
+      outstandingAdvanceD: advanceD,
+      advanceRateDPerKg: settings.advanceRateDPerKg,
+    });
+    const readyG = Number(f.readyG);
+    return {
+      id: f.id,
+      name: f.name,
+      tin: f.tin,
+      phone: f.phone,
+      inHandG,
+      readyG,
+      readyTickets: Number(f.readyTickets),
+      atLabG: Number(f.atLabG),
+      advanceD,
+      owedD: Math.max(0, Number(f.owedD)),
+      maxAdvanceD: collateral.maxAdvanceD,
+      headroomD: collateral.headroomD,
+      overLent: collateral.overLent,
+    };
+  });
+
+  /**
+   * Farms that have settled and not been paid in full — the queue of people who will come
+   * back asking for money. Before the settlement/disbursement split there was no such
+   * list, because a ticket was either paid entirely or not at all. docs/domain.md §4.
+   *
+   * FARM_PAYABLE is credit-normal, so the sum is negative when we owe; it is flipped here
+   * once rather than everywhere it is read.
+   */
+  const owedRows = await db
+    .select({
+      id: counterparties.id,
+      name: counterparties.name,
+      phone: counterparties.phone,
+      owedD: raw<string>`-COALESCE(SUM(${ledgerEntries.amountD}), 0)`,
+      lastPaidAt: raw<string | null>`(
+        SELECT MAX(d.paid_at) FROM disbursements d
+        WHERE d.counterparty_id = counterparties.id AND d.reversed_at IS NULL
+      )`,
+      settledAt: raw<string | null>`(
+        SELECT MAX(p.paid_at) FROM payments p
+        WHERE p.counterparty_id = counterparties.id AND p.reversed_at IS NULL
+      )`,
+    })
+    .from(ledgerAccounts)
+    .innerJoin(counterparties, eq(counterparties.id, ledgerAccounts.counterpartyId))
+    .leftJoin(ledgerEntries, eq(ledgerEntries.accountId, ledgerAccounts.id))
+    .where(eq(ledgerAccounts.kind, "FARM_PAYABLE"))
+    .groupBy(counterparties.id, counterparties.name, counterparties.phone)
+    .having(raw`COALESCE(SUM(${ledgerEntries.amountD}), 0) < 0`);
+
+  // Cash that has actually left the drawer, which is a different list from settlements.
+  const payouts = await db
+    .select({
+      id: disbursements.id,
+      receiptNo: disbursements.receiptNo,
+      paidAt: disbursements.paidAt,
+      amountD: disbursements.amountD,
+      balanceAfterD: disbursements.balanceAfterD,
+      paymentId: disbursements.paymentId,
+      reversedAt: disbursements.reversedAt,
+      farm: counterparties.name,
+      cashier: users.fullName,
+    })
+    .from(disbursements)
+    .innerJoin(counterparties, eq(counterparties.id, disbursements.counterpartyId))
+    .leftJoin(users, eq(users.id, disbursements.paidBy))
+    .where(gte(disbursements.paidAt, since))
+    .orderBy(desc(disbursements.paidAt))
+    .limit(100);
 
   return (
     <Shell user={user} title={tg.cash.title}>
+      {readOnly && <ReadOnlyBanner />}
       <CashClient
+        readOnly={readOnly}
         cashOnHandD={await cashOnHandD()}
+        totalOwedD={await totalFarmPayableD()}
+        owedFarms={owedRows
+          .map((f) => ({
+            id: f.id,
+            name: f.name,
+            phone: f.phone,
+            owedD: Number(f.owedD),
+            lastPaidAt: f.lastPaidAt ? new Date(f.lastPaidAt).toISOString() : null,
+            settledAt: f.settledAt ? new Date(f.settledAt).toISOString() : null,
+          }))
+          .sort((a, b) => b.owedD - a.owedD)}
+        payouts={payouts.map((d) => ({
+          ...d,
+          paidAt: d.paidAt.toISOString(),
+          reversed: d.reversedAt !== null,
+        }))}
         trend={trend}
+        advanceRateDPerKg={settings.advanceRateDPerKg}
         priceError={priceError}
         onScale={Number(upstream?.onScale ?? 0)}
         awaitingLab={Number(upstream?.awaitingLab ?? 0)}

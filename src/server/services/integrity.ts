@@ -1,6 +1,9 @@
 import { and, eq, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  counterparties,
+  disbursements,
+  ledgerAccounts,
   ledgerEntries,
   ledgerTx,
   payments,
@@ -9,6 +12,7 @@ import {
   weighTickets,
 } from "@/db/schema/index";
 import { netWeight } from "@/domain/weight";
+import { isPlausibleTin } from "@/domain/plate";
 
 /**
  * Integrity checks the owner can run at any time.
@@ -192,6 +196,96 @@ export async function verifyPaymentsAgainstLedger(): Promise<Finding[]> {
 }
 
 /**
+ * Cash handed to farms, checked both ways.
+ *
+ * A disbursement must post exactly what it says it posted, and no farm may end up having
+ * been paid more than it was owed. The service refuses an over-payment inside the same
+ * transaction it posts in, so a negative balance here means something reached the ledger
+ * without going through it — which is exactly what this check exists to notice.
+ */
+export async function verifyDisbursements(): Promise<Finding[]> {
+  const findings: Finding[] = [];
+
+  const rows = await db
+    .select({
+      receiptNo: disbursements.receiptNo,
+      amountD: disbursements.amountD,
+      posted: raw<string>`COALESCE((
+        SELECT SUM(ABS(e.amount_d)) FROM ledger_entries e WHERE e.tx_id = ${disbursements.ledgerTxId}
+      ), 0)`,
+    })
+    .from(disbursements)
+    .where(raw`${disbursements.reversedAt} IS NULL`);
+
+  for (const d of rows) {
+    // Every diram appears once as a debit and once as a credit.
+    if (Number(d.posted) !== d.amountD * 2) {
+      findings.push({
+        check: "disbursement.ledger",
+        titleTg: "Пардохти нақдӣ ба дафтари муҳосибӣ мувофиқ нест",
+        severity: "alarm",
+        detail: `Disbursement records ${d.amountD} diram; the ledger posted ${Number(d.posted) / 2}.`,
+        reference: d.receiptNo,
+      });
+    }
+  }
+
+  // FARM_PAYABLE is credit-normal: a positive balance means we have handed over more than
+  // we ever owed.
+  const overpaid = await db
+    .select({
+      farm: counterparties.name,
+      balanceD: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)`,
+    })
+    .from(ledgerAccounts)
+    .innerJoin(counterparties, eq(counterparties.id, ledgerAccounts.counterpartyId))
+    .leftJoin(ledgerEntries, eq(ledgerEntries.accountId, ledgerAccounts.id))
+    .where(eq(ledgerAccounts.kind, "FARM_PAYABLE"))
+    .groupBy(counterparties.name)
+    .having(raw`COALESCE(SUM(${ledgerEntries.amountD}), 0) > 0`);
+
+  for (const f of overpaid) {
+    findings.push({
+      check: "farm.overpaid",
+      titleTg: "Ба хоҷагӣ аз ҳисобаш зиёдтар пардохт шудааст",
+      severity: "alarm",
+      detail: `This farm has been paid ${Number(f.balanceD)} diram more than it was owed.`,
+      reference: f.farm,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Хоҷагиҳо бе РМА — farms that cannot be identified.
+ *
+ * The tax number is what makes a farm one farm across seasons and spellings. A record
+ * without a usable one cannot be matched against the next waybill that arrives, so it
+ * quietly becomes a second farm holding half the history. Warned about rather than
+ * alarmed: it is bad data, not missing money — but it needs fixing before the number is
+ * relied on to find anybody.
+ */
+export async function verifyFarmIdentity(): Promise<Finding[]> {
+  const rows = await db
+    .select({ id: counterparties.id, name: counterparties.name, tin: counterparties.tin })
+    .from(counterparties)
+    .where(and(eq(counterparties.kind, "farm"), eq(counterparties.isActive, true)));
+
+  return rows
+    .filter((f) => !f.tin || !isPlausibleTin(f.tin))
+    .map((f) => ({
+      check: "farm.tin",
+      titleTg: "Хоҷагӣ РМА-и дуруст надорад",
+      severity: "warn" as const,
+      detail: f.tin
+        ? `"${f.tin}" is not a usable taxpayer number; this farm cannot be matched reliably.`
+        : "This farm has no taxpayer number, so it cannot be matched against future loads.",
+      reference: f.name,
+    }));
+}
+
+/**
  * Ticket serials are handed out in contiguous blocks. A serial that was drawn but never
  * became a ticket is missing paper — it must be accounted for, not ignored.
  */
@@ -243,6 +337,8 @@ export async function runAllChecks(season: number): Promise<Finding[]> {
     verifyLedgerBalanced(),
     verifyTicketWeights(),
     verifyPaymentsAgainstLedger(),
+    verifyDisbursements(),
+    verifyFarmIdentity(),
     verifySerialGaps(season),
   ]);
   return results.flat();

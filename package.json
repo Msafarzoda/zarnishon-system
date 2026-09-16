@@ -16,7 +16,11 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
-    "verify": "tsx scripts/verify-money-path.ts"
+    "verify": "bash scripts/verify.sh",
+    "verify:here": "tsx scripts/verify-money-path.ts",
+    "dev:lan": "node server.mjs",
+    "start:lan": "NODE_ENV=production node server.mjs",
+    "certs": "bash scripts/make-certs.sh"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.0",
@@ -24,6 +28,7 @@
     "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "serialport": "^13.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

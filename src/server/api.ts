@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { db } from "@/db/client";
 import { syncOperations } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
-import { AuthError, currentUser, type CurrentUser, type Role } from "@/lib/auth/session";
+import { AuthError, currentUser, hasRole, type CurrentUser, type Role } from "@/lib/auth/session";
 
 /**
  * Every station write goes through here.
@@ -26,7 +26,10 @@ export function handler<S extends z.ZodTypeAny>(opts: {
     try {
       const found = await currentUser();
       if (!found) throw new AuthError("NOT_SIGNED_IN");
-      if (!opts.roles.includes(found.role)) throw new AuthError("FORBIDDEN");
+      // The union, not the primary role: one operator holds the scale, the lab and the
+      // cash desk during the parallel season, and a check against `role` alone rejects
+      // two thirds of their own work with a 401. docs/domain.md §6.
+      if (!hasRole(found, opts.roles)) throw new AuthError("FORBIDDEN");
       user = found;
     } catch {
       return NextResponse.json({ error: "NOT_AUTHORISED" }, { status: 401 });
