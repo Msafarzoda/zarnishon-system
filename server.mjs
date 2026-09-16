@@ -167,5 +167,24 @@ if (secure) {
   );
 }
 
-if (process.env.SCALE_PORT) console.log(`Тарозу / Scale: ${process.env.SCALE_PORT}\n`);
+/*
+ * Open the indicator's port now, rather than when somebody first opens a page.
+ *
+ * The reader lives inside Next — it has to, because `serialport` is a native addon and
+ * Next compiles `instrumentation.ts` for the edge runtime too, where webpack traces the
+ * import and the build fails on `stream`. So the server asks itself for a scale snapshot
+ * once, which starts the reader in the one place it can work.
+ *
+ * Without this the port opens on the first page load and every frame before that is lost,
+ * including the ones the protocol detection needs — so the first truck of the day would
+ * wait while the scale "warmed up".
+ */
+if (process.env.SCALE_PORT) {
+  console.log(`Тарозу / Scale: ${process.env.SCALE_PORT}`);
+  setTimeout(() => {
+    fetch(`http://127.0.0.1:${port}/api/scale/snapshot`)
+      .then(() => console.log("Тарозу: порт кушода шуд / scale port opened"))
+      .catch((e) => console.error("Тарозу: порт кушода нашуд / could not open:", e.message));
+  }, 1500);
+}
 console.log(`docs/deployment.md\n`);
