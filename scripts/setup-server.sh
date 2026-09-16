@@ -42,22 +42,80 @@ apt-get update -qq
 apt-get install -y -qq curl ca-certificates gnupg rsync git ufw openssl > /dev/null
 ok "curl, git, openssl, rsync, ufw"
 
-if ! command -v docker > /dev/null; then
-  curl -fsSL https://get.docker.com | sh > /dev/null
-  ok "docker installed"
-else
-  ok "docker already present"
-fi
+# Docker, without asking get.docker.com to guess what this machine is.
+#
+# It guesses wrong on Mint: Mint reports its own codename (zena, virginia, wilma...),
+# Docker's installer does not recognise it, and falls back to Debian — producing a
+# sources entry for `debian trixie` on a machine whose packages are `ubuntu noble`, and
+# then "you have held broken packages". Mint records the Ubuntu release it is built on in
+# UBUNTU_CODENAME, and that is what Docker actually publishes packages for.
+install_docker() {
+  if command -v docker > /dev/null; then
+    ok "docker already present"
+    return 0
+  fi
+
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  local codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+  local arch; arch="$(dpkg --print-architecture)"
+
+  # Clear anything a previous mis-detected run left behind, or apt keeps failing on it.
+  rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
+
+  if [ -n "$codename" ]; then
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+    if apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin > /dev/null 2>&1; then
+      ok "docker installed (ubuntu $codename)"
+      return 0
+    fi
+    echo "    !  Docker repo нашуд / Docker's own repo failed — falling back to the distro's"
+    rm -f /etc/apt/sources.list.d/docker.list
+    apt-get update -qq
+  fi
+
+  # Mint and Ubuntu both ship a perfectly good Docker. Older, but this runs one Postgres
+  # container — and a server that exists beats a newer one that does not.
+  if apt-get install -y -qq docker.io docker-compose-v2 > /dev/null 2>&1; then
+    ok "docker installed (from the distribution)"
+    return 0
+  fi
+
+  echo "    ✗ Docker насб нашуд / could not install Docker." >&2
+  return 1
+}
+install_docker
 systemctl enable --now docker > /dev/null
 ok "docker starts on boot"
 
-if ! command -v node > /dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-  apt-get install -y -qq nodejs > /dev/null
-  ok "node $(node -v) installed"
-else
-  ok "node $(node -v) already present"
-fi
+# Node 20 or newer. NodeSource publishes a distro-independent repo these days, so it does
+# not misread Mint the way Docker's installer does — but fall back to the distribution if
+# it ever does, rather than leaving the machine with no Node at all.
+install_node() {
+  if command -v node > /dev/null && [ "$(node -v | cut -c2- | cut -d. -f1)" -ge 20 ]; then
+    ok "node $(node -v) already present"
+    return 0
+  fi
+  if curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1 \
+     && apt-get install -y -qq nodejs > /dev/null 2>&1; then
+    ok "node $(node -v) installed"
+    return 0
+  fi
+  echo "    !  NodeSource нашуд / failed — trying the distribution's nodejs"
+  apt-get install -y -qq nodejs npm > /dev/null 2>&1 || true
+  if command -v node > /dev/null && [ "$(node -v | cut -c2- | cut -d. -f1)" -ge 20 ]; then
+    ok "node $(node -v) from the distribution"
+    return 0
+  fi
+  echo "    ✗ Node 20+ насб нашуд / could not install Node 20 or newer." >&2
+  return 1
+}
+install_node
 
 # ---------------------------------------------------------------- the service account
 say "Ҳисоби система / Service account"
