@@ -15,6 +15,7 @@ export const counterpartyKind = pgEnum("counterparty_kind", [
   "farm", // хоҷагӣ — consignor of cotton
   "individual", // private grower / driver selling his own cotton
   "company", // e.g. an oil factory buying seed
+  "local", // a neighbour buying a lorry of чигит or пучоқ for cash, no ТИН
 ]);
 
 export const ticketStatus = pgEnum("ticket_status", [
@@ -73,4 +74,52 @@ export const ledgerTxKind = pgEnum("ledger_tx_kind", [
   "CASH_OPENING",
   "CASH_ADJUSTMENT",
   "REVERSAL",
+]);
+
+
+// ------------------------------------------------------------------ phase 2
+
+/**
+ * What leaves the factory. docs/domain.md §7.
+ *
+ * Чигит, улюк and пучоқ leave by the weighbridge, брутто and тара, like intake mirrored.
+ * Кип does not: each bale was weighed when it was pressed and carries that weight for
+ * life, so a lorry-load of them is the sum of what was scanned onto it.
+ */
+export const productKind = pgEnum("product_kind", [
+  "chigit", // чигит — cottonseed, to the oil factories, ~57 %
+  "kip", // кип — pressed lint bales, ~33 %, sold at the end of the season
+  "ulyuk", // улюк — ~1 %, sold, or fed back through the machines
+  "puchoq", // пучоқ — leaves, dust and trash
+]);
+
+/** Which way a lorry is being weighed. docs/domain.md §7. */
+export const weighDirection = pgEnum("weigh_direction", [
+  /** Пахта arriving: loaded on arrival, so БРУТТО first, ТАРА after unloading. */
+  "inbound",
+  /** Product leaving: empty on arrival, so ТАРА first, БРУТТО after loading. */
+  "outbound",
+]);
+
+/**
+ * A bale's life. Pressed, stored for most of the year, then sold.
+ *
+ * REPRESSED is not a dead end: a bale that has to be opened and pressed again keeps its
+ * record, because the lint in it was still counted in a production run's balance and must
+ * not vanish from it.
+ */
+export const baleState = pgEnum("bale_state", [
+  "IN_STOCK",
+  "SHIPPED",
+  "SOLD",
+  "REPRESSED",
+  "VOID",
+]);
+
+/** Cotton fed into the gin is either bought from a farm or improved улюк coming back. */
+export const feedSource = pgEnum("feed_source", [
+  /** From a бунт — cotton the factory paid a farm for. Only this counts towards yield. */
+  "primary",
+  /** Улюк from an earlier run. Counting it as input again inflates throughput. */
+  "recycled",
 ]);

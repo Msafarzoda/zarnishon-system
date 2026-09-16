@@ -6,3 +6,4 @@ export * from "./intake";
 export * from "./lab";
 export * from "./money";
 export * from "./audit";
+export * from "./production";

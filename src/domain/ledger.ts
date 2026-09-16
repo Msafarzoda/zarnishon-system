@@ -193,10 +193,16 @@ export function buildAdvanceRepaidCashTx(
 }
 
 /**
- * Cottonseed sold to an oil factory, cash received.
+ * Product sold and cash received — чигит, улюк, пучоқ or a lorry of кип.
  *
  *   Dr CASH        amount
- *     Cr SEED_REVENUE     amount
+ *     Cr SALES_REVENUE    amount
+ *
+ * Into the **same** cash account that pays the farms, deliberately. The season is a loop:
+ * cash buys cotton, cotton becomes чигит and пучоқ, locals buy those for cash, and that
+ * cash buys the next farm's cotton. A separate revenue pot would hide the one fact the
+ * cashier needs — that this morning's sale is what makes this afternoon's payment
+ * possible. docs/domain.md §7.
  */
 export function buildSeedSaleReceiptTx(
   amountD: number,

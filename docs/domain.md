@@ -506,10 +506,43 @@ fitted the controls are:
 - every bale weight marked `source: manual`, like any typed weight
 - the run's balance, which is where a systematic shortfall shows up
 
-### Selling — three products, one ledger
+### Selling — two mechanisms, one ledger
 
-Чигит, кип and улюк are all sold. Each sale posts into the same cash ledger as §4, so cash
-on hand stays a single derived number:
+Settled 16.09.2026. All four outputs are sold, and **the price of every one of them is set
+by the owner**, exactly as the cotton price is in §4 — never by the cashier, never by
+whoever happens to be at the weighbridge when the truck arrives.
+
+They divide by *how they leave*, not by what they are:
+
+**Bulk — чигит, улюк, пучоқ.** Weighed on the weighbridge, брутто and тара, like intake
+but mirrored. Three products, one flow.
+
+**Кип.** Not weighed by truck at all. Each bale was weighed when it was pressed and carries
+that weight for life; a sale is a set of bales, and its weight is their sum.
+
+#### The cash comes back round, and buys the next cotton
+
+Settled 16.09.2026. Чигит, улюк and пучоқ are sold **to locals**, who pay cash, and that
+cash goes into the same хазина that pays the farms. So the season is a loop, not a line:
+
+```
+   нақд дар хазина ──pay a farm──▶ пахта ──gin──▶ чигит · улюк · пучоқ
+          ▲                                               │
+          └───────────── sold to locals, cash ────────────┘
+```
+
+This is why product sales post to the **same cash account** as everything in §4 rather
+than to some separate "revenue" pot. The cashier who sells a lorry of чигит in the morning
+can pay a farm with that money in the afternoon, and нақди дар хазина — which is a `SUM()`
+over the ledger and never a stored figure — simply goes up and then down.
+
+It also means cash on hand is not only a balance. It is **working capital**: the limit on
+how much cotton the factory can buy this week. A dashboard that shows it as a number
+without showing what it is owed against (§4's `FARM_PAYABLE`, and the advances) is showing
+half the picture.
+
+Each sale posts into the same cash ledger as §4, so cash on hand stays a single derived
+number:
 
 ```
 Dr CASH (or RECEIVABLE)     amount
@@ -531,12 +564,10 @@ bale a weight and a barcode in the first place.
 Written down because building on a guess is how a system ends up lying:
 
 - **Weigh at the gin mouth, or a moisture allowance?** Everything above depends on it.
-- **What yield range is normal**, so a run outside it can be flagged? The figures here are
-  the owner's, but as targets, not as measured tolerances.
 - **Is there a linter?** Many gins take a second, shorter fibre off the seed and sell it
   separately. Not mentioned; if it exists it is a fifth output and changes the balance.
 - **Is 210–215 kg the lint alone, or with the wrapping and ties?**
-- **Is пучоқ sold, or dumped?** Either way it is mass to account for.
+- **What yield range is normal**, so a run outside it can be flagged?
 - **Who records the bales** — the press operator, or молшинос? It is a role that does not
   exist yet.
 
