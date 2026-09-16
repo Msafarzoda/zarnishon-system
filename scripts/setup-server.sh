@@ -31,9 +31,16 @@ ok()  { printf '    ✓ %s\n' "$*"; }
 
 # ---------------------------------------------------------------- packages
 say "Барномаҳо / Packages"
+if ! command -v apt-get > /dev/null; then
+  echo "Ин скрипт барои Debian/Ubuntu/Mint аст. / This expects apt (Debian, Ubuntu, Mint)." >&2
+  exit 1
+fi
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates rsync git ufw > /dev/null
-ok "base packages"
+# Everything later assumes these, so nothing here may assume them either — a fresh Mint
+# install has no curl and sometimes no git.
+apt-get install -y -qq curl ca-certificates gnupg rsync git ufw openssl > /dev/null
+ok "curl, git, openssl, rsync, ufw"
 
 if ! command -v docker > /dev/null; then
   curl -fsSL https://get.docker.com | sh > /dev/null
@@ -119,6 +126,62 @@ else
   ok "$APP_DIR owned by $APP_USER"
 fi
 
+# --------------------------------------------------------------- configuration
+say "Танзимот / Configuration"
+ENV_FILE="$APP_DIR/.env.production"
+if [ -f "$ENV_FILE" ]; then
+  ok ".env.production already exists — left alone"
+else
+  # Read straight from the kernel's random pool rather than depending on any one tool
+  # being installed. These are written once and never shown: a password somebody typed,
+  # or that appeared in a terminal, is a password somebody knows.
+  rand() { tr -dc 'a-f0-9' < /dev/urandom | head -c "${1:-32}"; }
+  DB_PW="$(rand 32)"
+  cat > "$ENV_FILE" <<ENVEOF
+# Written by scripts/setup-server.sh. Secrets generated on this machine, never published.
+DB_PASSWORD=$DB_PW
+DATABASE_URL=postgres://zarnishon:$DB_PW@localhost:5433/zarnishon
+SESSION_SECRET=$(rand 64)
+NODE_ENV=production
+PORT=3000
+
+# The weighbridge indicator, when its cable comes into this machine. Find it with:
+#   ls /dev/ttyUSB* /dev/ttyACM*
+# Left unset, each station reads its own port in the browser instead — which then needs
+# HTTPS. See docs/deployment.md §2.
+# SCALE_PORT=/dev/ttyUSB0
+
+# Off-site backup target, e.g. user@host:/srv/zarnishon-backups/
+# BACKUP_REMOTE=
+ENVEOF
+  chown "$APP_USER:$APP_USER" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  ok "generated .env.production (secrets are random, and stay on this machine)"
+fi
+
+# --------------------------------------------------------------- database
+say "Пойгоҳи маълумот / Database"
+if [ -f "$APP_DIR/docker-compose.yml" ]; then
+  ( cd "$APP_DIR" && docker compose up -d db > /dev/null 2>&1 ) || true
+  for i in $(seq 1 60); do
+    docker exec zarnishon-db pg_isready -U zarnishon -q > /dev/null 2>&1 && break
+    sleep 2
+  done
+  if docker exec zarnishon-db pg_isready -U zarnishon -q > /dev/null 2>&1; then
+    ok "postgres running"
+  else
+    echo "    !  Postgres ҳанӯз тайёр нест / not ready yet — check: docker logs zarnishon-db"
+  fi
+fi
+
+# --------------------------------------------------------------- dependencies
+say "Китобхонаҳо / Dependencies"
+if [ -f "$APP_DIR/package.json" ]; then
+  sudo -u "$APP_USER" bash -c "cd '$APP_DIR' && npm ci --omit=dev > /dev/null 2>&1 || npm install > /dev/null 2>&1" \
+    && ok "npm packages installed" \
+    || echo "    !  npm install нашуд / failed — run it by hand in $APP_DIR"
+fi
+
 for UNIT in zarnishon.service zarnishon-backup.service zarnishon-backup.timer; do
   if [ -f "$APP_DIR/deploy/$UNIT" ]; then
     install -m 644 "$APP_DIR/deploy/$UNIT" "/etc/systemd/system/$UNIT"
@@ -160,21 +223,33 @@ ok "firewall: LAN and tailscale only"
 cat <<EOF
 
 ────────────────────────────────────────────────────────────
-Тайёр. / Done.  Ду қадами охирин, ки парол мепурсанд:
+Тайёр. / Done.
 
-1.  Tailscale-ро пайваст кунед / Connect Tailscale:
+Ҳоло се қадам мондааст / Three steps left:
+
+1.  Ҷадвалҳоро созед ва корбаронро илова кунед:
+    Create the tables and the staff accounts —
+    choose a password, you will use it to sign in:
+
+      cd $APP_DIR
+      sudo -u $APP_USER npm run db:push
+      sudo -u $APP_USER SEED_PASSWORD='ҳамин_ҷо_рамзи_шумо' npm run db:seed
+      sudo systemctl restart zarnishon
+
+2.  Дастрасии дурдаст / Remote access:
       sudo tailscale up --ssh
 
-    Пайванди додашударо кушоед. Баъд аз ҳар ҷо:
-      ssh $APP_USER@zarnishon         (аз телефон ё ноутбуки шумо)
+    Пайвандро кушоед ва ворид шавед. Баъд аз ҳар ҷо:
+      ssh $APP_USER@\$(hostname)
 
-2.  BIOS: «Restore on AC Power Loss» → Power On
-    Агар лэптоп батареяи солим дошта бошад, ин лозим нест —
-    батарея UPS аст ва мошин хомӯш намешавад.
+3.  Тарозу / The scale, when its cable is in this machine:
+      ls /dev/ttyUSB* /dev/ttyACM*
+    Он чиро ёфтед, дар $APP_DIR/.env.production ҳамчун SCALE_PORT нависед,
+    баъд:  sudo systemctl restart zarnishon
 
-Санҷиш / Check:
+Санҷиш / Check it is working:
       systemctl status zarnishon
       journalctl -u zarnishon -f
-      ls -lh $APP_DIR/backups | tail -5
+      curl -s localhost:3000 -o /dev/null -w '%{http_code}\\n'
 ────────────────────────────────────────────────────────────
 EOF
