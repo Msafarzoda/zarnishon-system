@@ -23,6 +23,12 @@ Group=zarnishon
 WorkingDirectory=/opt/zarnishon
 EnvironmentFile=/opt/zarnishon/.env.production
 
+# Docker reads its config from $HOME, and ProtectHome below hides /home from this service,
+# so every start logged "permission denied" for a file it was never going to need. Nothing
+# was wrong, which is the problem: a log that cries wolf on every boot is a log nobody
+# reads on the morning it matters. Pointed somewhere the service can actually see.
+Environment=DOCKER_CONFIG=/opt/zarnishon/.docker
+
 # Wait for Postgres to actually answer, not merely for Docker to have started. A laptop
 # disk is slow when cold and the database is regularly still replaying when the app asks.
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do docker exec zarnishon-db pg_isready -U zarnishon -q && exit 0; sleep 2; done; echo "database did not come up"; exit 1'
