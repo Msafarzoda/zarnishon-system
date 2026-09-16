@@ -5,7 +5,11 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: zarnishon
-      POSTGRES_PASSWORD: zarnishon
+      # The generated password from .env.production when there is one, and the obvious
+      # development default when there is not. Hardcoding it meant a production server
+      # built its database with one password while the app was configured with another,
+      # and the only symptom was "password authentication failed" long after the fact.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-zarnishon}
       POSTGRES_DB: zarnishon
     ports:
       - "5433:5432"

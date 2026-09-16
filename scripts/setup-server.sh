@@ -232,7 +232,12 @@ fi
 # --------------------------------------------------------------- database
 say "Пойгоҳи маълумот / Database"
 if [ -f "$APP_DIR/docker-compose.yml" ]; then
-  ( cd "$APP_DIR" && docker compose up -d db > /dev/null 2>&1 ) || true
+  # With the generated password in the environment, so the database is *created* with the
+  # same one the app will connect with. Postgres bakes the password in at initialisation:
+  # get it wrong here and no amount of fixing .env.production later will help — the volume
+  # has to be destroyed and rebuilt.
+  ( cd "$APP_DIR" && set -a && . ./.env.production && set +a && \
+    docker compose up -d db > /dev/null 2>&1 ) || true
   for i in $(seq 1 60); do
     docker exec zarnishon-db pg_isready -U zarnishon -q > /dev/null 2>&1 && break
     sleep 2
