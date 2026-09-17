@@ -8,3 +8,4 @@ coverage/
 
 # Local TLS certificates — machine-specific, and the key must never be committed.
 /certs/
+.claude/launch.json

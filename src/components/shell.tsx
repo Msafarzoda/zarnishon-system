@@ -90,7 +90,10 @@ export function Shell({
             {tg.app.name}
           </Link>
 
-          <nav className="flex items-center gap-1 text-sm">
+          {/* Wraps rather than overflows. The owner's bar carries eight sections since
+              §7 landed, and on a 1366-wide factory monitor a non-wrapping row pushed the
+              last two off the edge with nothing to say they were there. */}
+          <nav className="flex flex-wrap items-center gap-1 text-sm">
             {nav.map((item) => (
               <NavLink key={item.href} href={item.href} label={item.label} />
             ))}

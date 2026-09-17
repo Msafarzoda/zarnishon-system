@@ -140,6 +140,16 @@ export const tg = {
     newTicket: "Борхати нав",
     waitingHours: "соат интизор",
     allStages: "Ҳама марҳилаҳо",
+
+    // ---- §7: the second half of the line, past the бунт
+    factory: "Корхона",
+    factoryHint: "Аз бунт то фурӯш",
+    ginOpen: "Басти кушода",
+    ginClosed: "Басти кушода нест",
+    ginAction: "Ба коркард",
+    balesAction: "Ба кипҳо",
+    sellAction: "Ба фурӯш",
+    waitingToSell: "Омодаи фурӯш",
     paperReminder:
       "Коғази дастнавис ҳамчун пештара пур карда мешавад. Ин система нусхаи дуюм аст, на ивазкунандаи он.",
   },
@@ -606,6 +616,18 @@ export const tg = {
     liabilityTotal: "Ҳамагӣ бо пахтаи лаборатория",
     coverage: "Нақд барои пардохт мерасад",
     coverageShort: "Нақд намерасад",
+
+    // ---- §7: what the factory itself is holding and has sold
+    factorySection: "Корхона",
+    inGin: "Ба корхона дода шуд",
+    productStock: "Маҳсулоти дар анбор",
+    balesInStock: "Кипи дар анбор",
+    soldThisSeason: "Фурӯхта шуд",
+    productRevenue: "Даромад аз фурӯш",
+    buyersOwe: "Харидорон қарздоранд",
+    lastRunBalance: "Тавозуни басти охирин",
+    noRunsYet: "Ҳанӯз коркард сар нашудааст",
+    unsoldWorth: "Арзиши маҳсулоти дар анбор",
   },
 
   common: {
@@ -674,6 +696,10 @@ export const tg = {
     balesPressed: "Кипҳои фишурда",
     balance: "Тавозуни вазн",
     balanceOk: "Тавозун дуруст аст",
+    balanceAtClose: "Тавозун ҳангоми пӯшидани баст санҷида мешавад",
+    balanceAtCloseHint:
+      "Пахта аз аввали баст меравад, аммо чигиту кип баъдтар баркашида мешавад — то пӯшидани баст фоизҳо ҳанӯз пурра нестанд.",
+    runningTotals: "Ҳисоби ҷорӣ",
     loss: "Талафот",
     yield: "Ҳосилнокӣ",
     whichBatch: "Аз кадом партия",

@@ -12,7 +12,7 @@ const schema = z.object({
 export const POST = handler({
   operation: "product.receipt",
   // Money coming in is the cash desk's, exactly like money going out.
-  roles: ["cashier", "owner"],
+  roles: ["cashier"],
   schema,
   run: async (input, user) =>
     await receiveSalePayment({ ...input, receivedBy: user.id, stationId: user.stationId }),

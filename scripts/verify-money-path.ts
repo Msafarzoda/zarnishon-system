@@ -46,12 +46,13 @@ async function main() {
   const [labTech] = await db.select().from(s.users).where(eq(s.users.username, "laborant"));
   const [weigher] = await db.select().from(s.users).where(eq(s.users.username, "tarozubon"));
   const [owner] = await db.select().from(s.users).where(eq(s.users.username, "sohib"));
+  const [molshinos] = await db.select().from(s.users).where(eq(s.users.username, "molshinos"));
   const [scale] = await db.select().from(s.stations).where(eq(s.stations.code, "T1"));
   const [farm] = await db.select().from(s.counterparties).where(eq(s.counterparties.tin, "0000000001"));
   const [batch] = await db
     .select().from(s.batches)
     .where(and(eq(s.batches.season, SEASON), eq(s.batches.number, 101)));
-  assert(cashier && labTech && weigher && owner && scale && farm && batch,
+  assert(cashier && labTech && weigher && owner && molshinos && scale && farm && batch,
          "seed data missing — run db:seed");
 
   const [ticket46] = await db
@@ -508,13 +509,13 @@ async function main() {
   // ---------------------------------------------------------------- §7: the factory
   console.log("\nКоркард ва фурӯш — §7");
 
-  const run = await openRun({ clientUuid: randomUUID(), operatorId: owner.id });
+  const run = await openRun({ clientUuid: randomUUID(), operatorId: molshinos.id });
   ok(`басти ${run.serial} кушода шуд`);
 
   await assert.rejects(
     () => recordFeed({
       clientUuid: randomUUID(), runId: run.id, weightG: 1_000_000,
-      operatorId: owner.id,
+      operatorId: molshinos.id,
     }),
     (e: Error) => e instanceof DomainError,
     "a hand-entered feed weight must demand a reason",
@@ -525,21 +526,21 @@ async function main() {
   // 1 % улюк, 8 % пучоқ. That leaves 1 % unaccounted for, inside the 3 % limit.
   await recordFeed({
     clientUuid: randomUUID(), runId: run.id, weightG: 100_000_000,
-    batchId: batch.id, reason: "конвейер", operatorId: owner.id,
+    batchId: batch.id, reason: "конвейер", operatorId: molshinos.id,
   });
   for (const [product, g] of [
     ["chigit", 57_000_000], ["ulyuk", 1_000_000], ["puchoq", 8_000_000],
   ] as const) {
     await recordOutput({
       clientUuid: randomUUID(), runId: run.id, product, weightG: g,
-      reason: "тарозуи анбор", operatorId: owner.id,
+      reason: "тарозуи анбор", operatorId: molshinos.id,
     });
   }
 
   await assert.rejects(
     () => recordOutput({
       clientUuid: randomUUID(), runId: run.id, product: "kip", weightG: 33_000_000,
-      reason: "x", operatorId: owner.id,
+      reason: "x", operatorId: molshinos.id,
     }),
     (e: Error) => e instanceof DomainError,
     "кип must never be recorded as a bulk output",
@@ -551,7 +552,7 @@ async function main() {
   for (let i = 0; i < 155; i++) {
     const b = await pressBale({
       clientUuid: randomUUID(), runId: run.id, batchId: batch.id,
-      weightG: 213_000, operatorId: owner.id,
+      weightG: 213_000, operatorId: molshinos.id,
     });
     baleSerials.push(b.serial);
   }
@@ -564,11 +565,11 @@ async function main() {
     `mass balance should be clean, got ${JSON.stringify(balance.findings)}`);
   ok(`тавозун дуруст — талафот ${(balance.lossBp / 100).toFixed(2)} %`);
 
-  await closeRun(run.id, owner.id);
+  await closeRun(run.id, molshinos.id);
   await assert.rejects(
     () => pressBale({
       clientUuid: randomUUID(), runId: run.id, batchId: batch.id,
-      weightG: 213_000, operatorId: owner.id,
+      weightG: 213_000, operatorId: molshinos.id,
     }),
     (e: Error) => e instanceof DomainError,
     "a closed run must not take more bales",
@@ -580,7 +581,7 @@ async function main() {
     .insert(s.counterparties)
     .values({
       clientUuid: randomUUID(), kind: "local", name: "Ҳамсояи харидор",
-      createdBy: owner.id,
+      createdBy: molshinos.id,
     })
     .returning();
   assert(buyer, "could not create a buyer");
@@ -588,7 +589,7 @@ async function main() {
   await assert.rejects(
     () => sellProduct({
       clientUuid: randomUUID(), product: "chigit", buyerId: buyer.id,
-      tareG: 8_000_000, grossG: 20_000_000, soldBy: owner.id,
+      tareG: 8_000_000, grossG: 20_000_000, soldBy: molshinos.id,
       weighReason: "тарозу",
     }),
     (e: Error) => e instanceof DomainError,
@@ -613,7 +614,7 @@ async function main() {
     tareG: 8_000_000, grossG: 20_000_000,
     tareSource: "indicator", grossSource: "indicator",
     tareRaw: "\x02+0080000\x03", grossRaw: "\x02+0200000\x03",
-    paidNowD: 3_840_000, soldBy: owner.id,
+    paidNowD: 3_840_000, soldBy: molshinos.id,
   });
   assert.equal(seedSale.weightG, 12_000_000);
   assert.equal(seedSale.amountD, 3_840_000);
@@ -630,7 +631,7 @@ async function main() {
     .from(s.bales).limit(100)];
   const kipSale = await sellProduct({
     clientUuid: randomUUID(), product: "kip", buyerId: buyer.id,
-    baleIds: balesToSell.map((b) => b.id), soldBy: owner.id,
+    baleIds: balesToSell.map((b) => b.id), soldBy: molshinos.id,
   });
   assert.equal(kipSale.weightG, 100 * 213_000);
   assert.equal(kipSale.baleCount, 100);
@@ -644,7 +645,7 @@ async function main() {
   await assert.rejects(
     () => sellProduct({
       clientUuid: randomUUID(), product: "kip", buyerId: buyer.id,
-      baleIds: [balesToSell[0]!.id], soldBy: owner.id,
+      baleIds: [balesToSell[0]!.id], soldBy: molshinos.id,
     }),
     (e: Error) => e instanceof DomainError,
     "a bale already on an invoice must not be sold again",

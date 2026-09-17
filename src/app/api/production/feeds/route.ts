@@ -17,7 +17,8 @@ const schema = z.object({
 
 export const POST = handler({
   operation: "production.feed",
-  roles: ["merchandiser", "weigher", "owner"],
+  // The weigher is here because the бунт is emptied past his bridge, not the owner.
+  roles: ["merchandiser", "weigher"],
   schema,
   run: async (input, user) => await recordFeed({ ...input, operatorId: user.id }),
 });

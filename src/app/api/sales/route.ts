@@ -24,9 +24,10 @@ const schema = z.object({
 
 export const POST = handler({
   operation: "product.sell",
-  // The молшинос loads and weighs; the owner may sell directly. A cashier never can —
-  // the person who takes the money does not also decide what left the yard.
-  roles: ["merchandiser", "owner"],
+  // The молшинос loads and weighs. A cashier never can: the person who takes the money
+  // does not also get to say what left the yard — and nor does the owner, for the same
+  // reason the gin floor is not his. docs/domain.md §6.
+  roles: ["merchandiser"],
   schema,
   run: async (input, user) =>
     await sellProduct({ ...input, soldBy: user.id, stationId: user.stationId }),

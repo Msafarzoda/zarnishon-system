@@ -604,18 +604,34 @@ function KipSalePanel({
           />
         </div>
 
-        <form
-          onSubmit={(e) => { e.preventDefault(); void scan(input); }}
-        >
+        {/*
+          * A hand scanner types the serial and then sends Enter, so Enter has to add the
+          * bale — and it must not depend on the browser's implicit form submission, which
+          * a form with no submit button does not reliably do. Both are wired: an explicit
+          * submit button, and Enter handled on the field itself. Two hundred bales go
+          * through here in an hour and the operator never touches the mouse.
+          */}
+        <form onSubmit={(e) => { e.preventDefault(); void scan(input); }}>
           <span className="label">{tg.bales.scanHere}</span>
-          <input
-            ref={boxRef}
-            className="input font-mono text-lg"
-            placeholder="K-2026-101-00042"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            autoFocus
-          />
+          <div className="flex gap-2">
+            <input
+              ref={boxRef}
+              className="input flex-1 font-mono text-lg"
+              placeholder="K-2026-101-00042"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void scan(input);
+                }
+              }}
+              autoFocus
+            />
+            <button type="submit" className="btn-secondary" disabled={!input.trim()}>
+              {tg.common.add}
+            </button>
+          </div>
         </form>
 
         {scanNotice && <Notice tone={scanNotice.tone}>{scanNotice.text}</Notice>}

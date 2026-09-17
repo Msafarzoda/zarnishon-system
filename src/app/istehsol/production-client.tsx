@@ -151,11 +151,21 @@ export function ProductionClient({
             ))}
           </ul>
         </Section>
-      ) : (
+      ) : balance.final ? (
         totals.feedG > 0 && (
           <Notice tone="ok">
             {tg.production.balanceOk} — {tg.production.loss} {(balance.lossBp / 100).toFixed(2)} %
           </Notice>
+        )
+      ) : (
+        /* While the run is open the figures above are a running total, not a verdict.
+           Saying so is the difference between an operator who trusts the panel and one
+           who has learned to ignore a permanently red box. */
+        totals.feedG > 0 && (
+          <div className="card px-4 py-3">
+            <p className="font-medium text-ink-soft">{tg.production.balanceAtClose}</p>
+            <p className="mt-0.5 text-sm text-ink-faint">{tg.production.balanceAtCloseHint}</p>
+          </div>
         )
       )}
 

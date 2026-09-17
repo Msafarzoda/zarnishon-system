@@ -1,14 +1,17 @@
-import { and, asc, eq, inArray, sql as raw } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql as raw } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   batches,
   counterparties,
+  productionRuns,
   vehicles,
   weighTickets,
 } from "@/db/schema/index";
 import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { cashOnHandD } from "@/server/services/balances";
 import { priceTrend } from "@/server/services/price-trend";
+import { productStock } from "@/server/services/product-sales";
+import { totalBuyerReceivableD } from "@/server/services/balances";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { WorkBoard, type WorkTicket } from "./work-board";
@@ -117,6 +120,24 @@ export default async function WorkPage() {
 
   const trend = await priceTrend();
 
+  /*
+   * §7 — the half of the line past the бунт.
+   *
+   * The board showed the cotton's journey as far as being paid for and stopped there, but
+   * the same operator now also feeds the gin, presses bales and loads lorries. Those are
+   * not a queue the way the three intake steps are — nothing is "stuck" at the press — so
+   * they are shown as state rather than as a fourth column: is a run open, how many bales
+   * are standing, is there anything waiting to be sold.
+   */
+  const [openRun] = await db
+    .select({ id: productionRuns.id, serial: productionRuns.serial })
+    .from(productionRuns)
+    .where(and(isNull(productionRuns.endedAt), isNull(productionRuns.voidedAt)))
+    .orderBy(desc(productionRuns.startedAt))
+    .limit(1);
+
+  const [stock, buyersOweD] = await Promise.all([productStock(), totalBuyerReceivableD()]);
+
   return (
     <Shell user={user} title={tg.work.title}>
       <WorkBoard
@@ -130,6 +151,16 @@ export default async function WorkPage() {
         canWeigh={canOperate(user, ["weigher"])}
         canLab={canOperate(user, ["lab"])}
         canPay={canOperate(user, ["cashier"])}
+        canGin={canOperate(user, ["merchandiser", "weigher"])}
+        openRunSerial={openRun?.serial ?? null}
+        balesInStock={stock.kip.count}
+        balesWeightG={stock.kip.weightG}
+        bulkToSellG={
+          Math.max(0, stock.chigit.weightG) +
+          Math.max(0, stock.ulyuk.weightG) +
+          Math.max(0, stock.puchoq.weightG)
+        }
+        buyersOweD={buyersOweD}
       />
     </Shell>
   );

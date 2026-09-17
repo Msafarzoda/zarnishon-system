@@ -16,7 +16,7 @@ const schema = z.object({
 
 export const POST = handler({
   operation: "production.output",
-  roles: ["merchandiser", "weigher", "owner"],
+  roles: ["merchandiser", "weigher"],
   schema,
   run: async (input, user) => await recordOutput({ ...input, operatorId: user.id }),
 });

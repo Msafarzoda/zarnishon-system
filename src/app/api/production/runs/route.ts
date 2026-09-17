@@ -17,9 +17,16 @@ const schema = z.discriminatedUnion("action", [
 
 export const POST = handler({
   operation: "production.run",
-  // The молшинос runs the gin floor. The owner may act here too — on a small site he
-  // often is the person who opens the shift.
-  roles: ["merchandiser", "owner"],
+  /*
+   * The молшинос runs the gin floor, and the owner does not — deliberately.
+   *
+   * The mass balance is what stands behind every hand-typed bale weight, and it is only
+   * a control while the person recording the outputs is not the person who profits from
+   * understating them. On a shift with no молшинос the answer is to grant somebody the
+   * role in Идора, which is recorded, rather than to have the owner quietly hold it for
+   * ever. docs/domain.md §6.
+   */
+  roles: ["merchandiser"],
   schema,
   run: async (input, user) =>
     input.action === "open"

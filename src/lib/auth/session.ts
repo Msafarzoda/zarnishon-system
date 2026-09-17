@@ -209,7 +209,15 @@ export function homePathFor(role: Role): string {
     case "accountant":
       return "/hisobot";
     case "merchandiser":
-      return "/partiyaho";
+      /*
+       * Коркард, not Партияҳо.
+       *
+       * The молшинос's day used to begin at the партия list because that was the only
+       * thing there was for him to do. Since §7 his first act of a shift is opening a
+       * run, and until one is open nothing else on the gin floor can be recorded — so
+       * landing anywhere else means the first thing he does every morning is navigate.
+       */
+      return "/istehsol";
     default:
       return "/idora";
   }

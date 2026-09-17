@@ -82,7 +82,7 @@ export default async function SalesPage() {
       {readOnly && <ReadOnlyBanner />}
       <SalesClient
         readOnly={readOnly}
-        canReceive={canOperate(user, ["cashier", "owner"])}
+        canReceive={canOperate(user, ["cashier"])}
         cashOnHandD={cash}
         owedToUsD={owedToUs}
         stock={stock}

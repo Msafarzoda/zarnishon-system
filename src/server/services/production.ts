@@ -397,7 +397,18 @@ export async function runTotals(runId: string, x: Pick<typeof db, "select"> = db
 
 export async function runMassBalance(runId: string): Promise<MassBalance> {
   await getActiveSettings(); // fails loudly if the factory was never configured
-  return massBalance(await runTotals(runId));
+  const [run] = await db
+    .select({ endedAt: productionRuns.endedAt })
+    .from(productionRuns)
+    .where(eq(productionRuns.id, runId))
+    .limit(1);
+  // An open run's proportions are half a shift out of date by construction — see
+  // `RunStage` in src/domain/mass-balance.ts.
+  return massBalance(
+    await runTotals(runId),
+    undefined,
+    run?.endedAt ? "closed" : "open",
+  );
 }
 
 /** Кипи дар анбор — how many bales the factory is holding, and what they weigh. */

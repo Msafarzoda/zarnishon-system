@@ -114,7 +114,9 @@ export default async function ProductionPage() {
       operator: open.operator,
       batchNumbers: await runBatchNumbers(open.id),
       totals,
-      balance: massBalance(totals),
+      // This screen only ever shows the open run, so its proportions are judged as
+      // interim: see `RunStage` in src/domain/mass-balance.ts.
+      balance: massBalance(totals, undefined, "open"),
       feeds: feeds.map((f) => ({ ...f, fedAt: f.fedAt.toISOString() })),
       outputs: outputs.map((o) => ({ ...o, recordedAt: o.recordedAt.toISOString() })),
       bales: pressed.map((b) => ({ ...b, pressedAt: b.pressedAt.toISOString() })),

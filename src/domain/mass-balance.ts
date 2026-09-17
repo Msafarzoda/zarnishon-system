@@ -87,6 +87,8 @@ export interface MassBalance {
   puchoqBp: number;
   findings: MassBalanceFinding[];
   severity: MassBalanceSeverity;
+  /** False while the run is open: the proportions are not yet worth judging. */
+  final: boolean;
 }
 
 /** Basis points of `part` in `whole`, guarding the empty run. */
@@ -94,9 +96,30 @@ function bp(part: number, whole: number): number {
   return whole === 0 ? 0 : divRound(part * 10_000, whole);
 }
 
+/**
+ * Whether the run is finished, and therefore whether its proportions mean anything.
+ *
+ * The equation is a **shift-level reconciliation**, not a running total. Cotton goes onto
+ * the conveyor from the first minute, and the чигит is weighed off when the hopper is
+ * emptied and the bales when the press has made them — so for most of an open shift the
+ * inputs are hours ahead of the outputs, and the loss reads near a hundred per cent with
+ * nothing wrong at all.
+ *
+ * Judged live, the panel was red from the first feed row to the last output of every
+ * single shift. A control that is always red is not a control; the operator learns within
+ * a week that the red box means "the shift is in progress" and then does not see the day
+ * it means "five tonnes of lint are missing".
+ *
+ * So the yield and loss findings wait for the run to close. The one finding that does not
+ * wait is `outputs-exceed-input` — more coming out than went in is impossible at any
+ * moment of any shift, and it is never a matter of timing.
+ */
+export type RunStage = "open" | "closed";
+
 export function massBalance(
   totals: RunTotals,
   norms: YieldNorms = DEFAULT_YIELD_NORMS,
+  stage: RunStage = "closed",
 ): MassBalance {
   const feedG = assertNonNegativeInt(totals.feedG, "feedG");
   const recycledG = assertNonNegativeInt(totals.recycledG, "recycledG");
@@ -110,7 +133,15 @@ export function massBalance(
 
   const findings: MassBalanceFinding[] = [];
 
-  if (feedG === 0) {
+  /*
+   * Outputs with nothing recorded going in. An alarm, and the reason this module exists.
+   *
+   * Only once there *are* outputs, though. A run that has just been opened has no feed
+   * and no outputs, and raising this on it puts a red box on the gin floor from the
+   * moment of the first click every single shift — which is how an operator learns that
+   * the red box means nothing. Nothing recorded is not a finding; it is an empty run.
+   */
+  if (stage === "closed" && feedG === 0 && outputG > 0) {
     findings.push({
       code: "no-feed",
       severity: "alarm",
@@ -134,7 +165,7 @@ export function massBalance(
   }
 
   const lossBp = bp(Math.max(0, lossG), inputG);
-  if (feedG > 0 && lossG > 0 && lossBp > norms.maxLossBp) {
+  if (stage === "closed" && feedG > 0 && lossG > 0 && lossBp > norms.maxLossBp) {
     findings.push({
       code: "loss-too-high",
       severity: "alarm",
@@ -150,7 +181,8 @@ export function massBalance(
 
   // Proportion checks catch what the total cannot: bales weighed light put the missing
   // lint into "loss", and the sum still adds up.
-  if (feedG > 0 && (chigitBp < norms.chigitBp.min || chigitBp > norms.chigitBp.max)) {
+  if (stage === "closed" && feedG > 0 &&
+      (chigitBp < norms.chigitBp.min || chigitBp > norms.chigitBp.max)) {
     findings.push({
       code: "chigit-out-of-range",
       severity: "warn",
@@ -161,7 +193,8 @@ export function massBalance(
     });
   }
 
-  if (feedG > 0 && (kipBp < norms.kipBp.min || kipBp > norms.kipBp.max)) {
+  if (stage === "closed" && feedG > 0 &&
+      (kipBp < norms.kipBp.min || kipBp > norms.kipBp.max)) {
     findings.push({
       code: "kip-out-of-range",
       severity: "warn",
@@ -191,5 +224,6 @@ export function massBalance(
     puchoqBp: bp(totals.puchoqG, feedG),
     findings,
     severity,
+    final: stage === "closed",
   };
 }

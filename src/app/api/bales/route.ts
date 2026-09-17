@@ -13,7 +13,7 @@ const schema = z.object({
 
 export const POST = handler({
   operation: "bale.press",
-  roles: ["merchandiser", "weigher", "owner"],
+  roles: ["merchandiser", "weigher"],
   schema,
   run: async (input, user) =>
     await pressBale({ ...input, operatorId: user.id, stationId: user.stationId }),

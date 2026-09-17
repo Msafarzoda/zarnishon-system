@@ -9,6 +9,9 @@ import {
   ledgerAccounts,
   ledgerEntries,
   payments,
+  productSales,
+  productionRuns,
+  runFeeds,
   users,
   weighEvents,
   weighTickets,
@@ -19,6 +22,12 @@ import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
 import { runAllChecks } from "@/server/services/integrity";
 import { listReprints } from "@/server/services/printing";
+import { productStock } from "@/server/services/product-sales";
+import { currentProductPrices } from "@/server/services/product-pricing";
+import { runMassBalance, runTotals } from "@/server/services/production";
+import { totalBuyerReceivableD } from "@/server/services/balances";
+import { PRODUCT_KINDS, saleAmountD, type ProductKind } from "@/domain/product";
+import { tgProduct } from "@/lib/i18n/products";
 import { payableWeight } from "@/domain/weight";
 import {
   bpToPercentString,
@@ -272,6 +281,56 @@ export default async function DashboardPage() {
   // Each reprint is another stamped driver's copy that may be in circulation.
   const reprints = await listReprints();
 
+  /*
+   * §7 — the factory's own half of the season.
+   *
+   * The owner's page answered "what have we bought and what do we owe" and stopped at the
+   * бунт. Everything past it — a hundred tonnes through the gin, two thousand bales in a
+   * shed, a lorry of чигит that left unpaid — was invisible here, which meant the largest
+   * asset on the site and the only unsecured debt owed *to* the factory were both things
+   * the owner had to go and ask about.
+   */
+  const [stock, productPrices, buyersOweD] = await Promise.all([
+    productStock(),
+    currentProductPrices(),
+    totalBuyerReceivableD(),
+  ]);
+
+  const [salesTotals] = await db
+    .select({
+      count: raw<string>`COUNT(*)`,
+      amountD: raw<string>`COALESCE(SUM(${productSales.amountD}), 0)`,
+    })
+    .from(productSales)
+    .where(and(eq(productSales.season, season), isNull(productSales.reversedAt)));
+
+  const [ginned] = await db
+    .select({
+      weightG: raw<string>`COALESCE(SUM(${runFeeds.weightG}) FILTER (
+        WHERE ${runFeeds.source} = 'primary'), 0)`,
+    })
+    .from(runFeeds)
+    .where(isNull(runFeeds.supersedesId));
+
+  // The most recent run, open or closed. A shift's yield going out of band is worth the
+  // owner seeing the same day rather than at the end of the season.
+  const [lastRun] = await db
+    .select({ id: productionRuns.id, serial: productionRuns.serial })
+    .from(productionRuns)
+    .where(isNull(productionRuns.voidedAt))
+    .orderBy(desc(productionRuns.startedAt))
+    .limit(1);
+
+  const lastBalance = lastRun ? await runMassBalance(lastRun.id) : null;
+  const lastTotals = lastRun ? await runTotals(lastRun.id) : null;
+
+  /** What is standing in the yard, valued at the owner's own current prices. */
+  const unsoldWorthD = PRODUCT_KINDS.reduce((sum, product: ProductKind) => {
+    const price = productPrices[product]?.priceDPerKg;
+    if (!price) return sum;
+    return sum + saleAmountD(Math.max(0, stock[product].weightG), price);
+  }, 0);
+
   const kg = (g: number) => `${gramsToKgString(g, 0)} ${tg.common.kg}`;
   const som = (d: number) => `${diramToSomoniString(d)} ${tg.common.somoni}`;
 
@@ -410,6 +469,105 @@ export default async function DashboardPage() {
                 `${tg.lab.trash} > ${bpToPercentString(settings.norms.trashBp, 0)} %`}
           </p>
           <p className="mt-1 text-xs text-ink-faint">{tg.price.paymentDayNotice}</p>
+        </section>
+
+        {/* Корхона — the gin, the shed and the buyers. */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            {tg.dashboard.factorySection}
+          </h2>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Tile label={tg.dashboard.inGin} value={kg(Number(ginned?.weightG ?? 0))} />
+            <Tile
+              label={tg.dashboard.balesInStock}
+              value={String(stock.kip.count)}
+              hint={kg(stock.kip.weightG)}
+            />
+            <Tile
+              label={tg.dashboard.unsoldWorth}
+              value={som(unsoldWorthD)}
+              hint={tg.sales.setPrices}
+            />
+            <Tile
+              label={tg.dashboard.buyersOwe}
+              value={som(buyersOweD)}
+              hint={`${tg.dashboard.soldThisSeason}: ${som(Number(salesTotals?.amountD ?? 0))}`}
+              tone={buyersOweD > 0 ? "warn" : undefined}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {PRODUCT_KINDS.filter((p) => p !== "kip").map((product: ProductKind) => (
+              <Tile
+                key={product}
+                label={`${tgProduct[product]} — ${tg.dashboard.productStock}`}
+                value={kg(Math.max(0, stock[product].weightG))}
+                hint={
+                  productPrices[product]
+                    ? `${diramToSomoniString(productPrices[product]!.priceDPerKg)} ${tg.price.perKg}`
+                    : tg.sales.noPriceYet
+                }
+                tone={productPrices[product] ? undefined : "warn"}
+              />
+            ))}
+            <Tile
+              label={`${tgProduct.kip} — ${tg.cash.price}`}
+              value={
+                productPrices.kip
+                  ? diramToSomoniString(productPrices.kip.priceDPerKg)
+                  : "—"
+              }
+              hint={productPrices.kip ? tg.price.perKg : tg.sales.noPriceYet}
+              tone={productPrices.kip ? undefined : "warn"}
+            />
+          </div>
+
+          {/* The mass balance is the anti-fraud control for this half of the site, so it
+              belongs on the owner's page and not only on the gin floor. */}
+          {lastRun && lastBalance && lastTotals && (
+            <Panel
+              title={`${tg.dashboard.lastRunBalance} — ${lastRun.serial}`}
+              tone={lastBalance.severity === "ok" ? undefined : "warn"}
+            >
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Tile label={tg.production.feed} value={kg(lastTotals.feedG)} />
+                <Tile
+                  label={tgProduct.chigit}
+                  value={`${(lastBalance.chigitBp / 100).toFixed(1)} %`}
+                  hint={kg(lastTotals.chigitG)}
+                />
+                <Tile
+                  label={tgProduct.kip}
+                  value={`${(lastBalance.kipBp / 100).toFixed(1)} %`}
+                  hint={kg(lastTotals.kipG)}
+                />
+                <Tile
+                  label={tg.production.loss}
+                  value={`${(lastBalance.lossBp / 100).toFixed(2)} %`}
+                  tone={lastBalance.severity === "alarm" ? "warn" : undefined}
+                />
+              </div>
+              {lastBalance.findings.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {lastBalance.findings.map((f) => (
+                    <li key={f.code}>
+                      <span
+                        className={f.severity === "alarm" ? "font-semibold text-alarm" : "text-warn"}
+                      >
+                        {f.titleTg}
+                      </span>{" "}
+                      <span className="text-ink-soft">{f.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          )}
+
+          {!lastRun && (
+            <p className="card px-4 py-3 text-sm text-ink-faint">{tg.dashboard.noRunsYet}</p>
+          )}
         </section>
 
         {Number(seedRevenue?.total ?? 0) !== 0 && (

@@ -57,6 +57,19 @@ describe("what the balance is for", () => {
     expect(b.findings.map((f) => f.code)).toContain("no-feed");
     expect(b.severity).toBe("alarm");
   });
+
+  /*
+   * A run the молшинос opened thirty seconds ago. Nothing has gone in and nothing has
+   * come out, so there is nothing to find — and an alarm here would be on screen at the
+   * start of every shift, which is how a real one stops being noticed.
+   */
+  it("says nothing at all about a run with nothing recorded yet", () => {
+    const b = massBalance({
+      feedG: 0, recycledG: 0, chigitG: 0, kipG: 0, ulyukG: 0, puchoqG: 0,
+    });
+    expect(b.findings).toEqual([]);
+    expect(b.severity).toBe("ok");
+  });
 });
 
 describe("recycled улюк is not counted as new cotton", () => {
@@ -101,5 +114,53 @@ describe("the norms are the owner's, and can be changed", () => {
         maxLossBp: 2000,
       }).severity,
     ).toBe("ok");
+  });
+});
+
+/**
+ * Half a shift in: the conveyor has been running since six, the hopper has not been
+ * emptied and the press has made nothing yet.
+ *
+ * Judged as if the shift were over, this run looks like a catastrophe — a hundred per
+ * cent loss, no seed, no lint. It is the ordinary state of every shift for its first few
+ * hours, which is exactly why it must not raise anything.
+ */
+describe("a run that is still going", () => {
+  const midShift = {
+    feedG: 24_500_000, recycledG: 0,
+    chigitG: 0, kipG: 0, ulyukG: 0, puchoqG: 0,
+  };
+
+  it("says nothing about yields or loss until the run is closed", () => {
+    const open = massBalance(midShift, undefined, "open");
+    expect(open.findings).toEqual([]);
+    expect(open.severity).toBe("ok");
+    expect(open.final).toBe(false);
+    // The figures are still computed — the floor wants its running totals.
+    expect(open.lossG).toBe(24_500_000);
+    expect(open.lossBp).toBe(10_000);
+  });
+
+  it("judges the same numbers once the run is closed", () => {
+    const closed = massBalance(midShift, undefined, "closed");
+    expect(closed.findings.map((f) => f.code)).toContain("loss-too-high");
+    expect(closed.severity).toBe("alarm");
+    expect(closed.final).toBe(true);
+  });
+
+  /*
+   * The one thing that is wrong at any moment of any shift. More cannot come out than
+   * went in, and waiting for the run to close to say so would let an operator carry on
+   * recording against a figure that is already impossible.
+   */
+  it("still refuses more coming out than went in, mid-shift", () => {
+    const impossible = massBalance(
+      { feedG: 10_000_000, recycledG: 0, chigitG: 9_000_000, kipG: 5_000_000,
+        ulyukG: 0, puchoqG: 0 },
+      undefined,
+      "open",
+    );
+    expect(impossible.findings.map((f) => f.code)).toEqual(["outputs-exceed-input"]);
+    expect(impossible.severity).toBe("alarm");
   });
 });

@@ -29,6 +29,7 @@ export function WorkBoard({
   tickets, cashOnHandD, priceDPerKg,
   receivedTodayG, receivedToday, analysedToday, paidToday,
   canWeigh, canLab, canPay,
+  canGin, openRunSerial, balesInStock, balesWeightG, bulkToSellG, buyersOweD,
 }: {
   tickets: WorkTicket[];
   cashOnHandD: number;
@@ -40,6 +41,13 @@ export function WorkBoard({
   canWeigh: boolean;
   canLab: boolean;
   canPay: boolean;
+  /** §7 — whether this person works the gin floor as well as the weighbridge. */
+  canGin: boolean;
+  openRunSerial: string | null;
+  balesInStock: number;
+  balesWeightG: number;
+  bulkToSellG: number;
+  buyersOweD: number;
 }) {
   const onScale = tickets.filter((t) => t.status === "OPEN");
   const atLab = tickets.filter((t) => t.status === "WEIGHED");
@@ -107,6 +115,93 @@ export function WorkBoard({
           weightOf={(t) => t.netG}
         />
       </section>
+
+      {/* Корхона — what happens to the cotton after it has been paid for.
+          Deliberately not a fourth column: nothing is stuck at the press waiting for
+          somebody, so these are states to be read rather than queues to be cleared. */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+          {tg.work.factory}
+          <span className="ms-2 font-normal normal-case text-ink-faint/80">
+            {tg.work.factoryHint}
+          </span>
+        </h2>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <FactoryTile
+            label={openRunSerial ? tg.work.ginOpen : tg.work.ginClosed}
+            value={openRunSerial ?? "—"}
+            action={tg.work.ginAction}
+            href="/istehsol"
+            enabled={canGin}
+            tone={openRunSerial ? undefined : "warn"}
+          />
+          <FactoryTile
+            label={tg.bales.inStock}
+            value={String(balesInStock)}
+            hint={`${gramsToKgString(balesWeightG, 0)} ${tg.common.kg}`}
+            action={tg.work.balesAction}
+            href="/kipho"
+            enabled
+          />
+          <FactoryTile
+            label={tg.work.waitingToSell}
+            value={`${gramsToKgString(bulkToSellG, 0)} ${tg.common.kg}`}
+            hint={tg.sales.subtitle}
+            action={tg.work.sellAction}
+            href="/furush"
+            enabled={canGin}
+          />
+          <FactoryTile
+            label={tg.sales.owedByBuyers}
+            value={`${diramToSomoniString(buyersOweD)} ${tg.common.somoni}`}
+            action={tg.sales.receivePayment}
+            href="/furush"
+            enabled={canPay}
+            tone={buyersOweD > 0 ? "warn" : undefined}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * One fact about the factory, with the screen that acts on it attached.
+ *
+ * Same shape as a Stat, plus a link — because every one of these is a fact somebody is
+ * about to do something about, and making them read-only would send the operator back to
+ * the nav bar to find the screen they were just told they needed.
+ */
+function FactoryTile({
+  label, value, hint, action, href, enabled, tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  action: string;
+  href: string;
+  enabled: boolean;
+  tone?: "warn";
+}) {
+  return (
+    <div className={`card flex flex-col px-4 py-3 ${tone === "warn" ? "border-warn" : ""}`}>
+      <div className="text-sm text-ink-soft">{label}</div>
+      <div
+        className={`tabular text-2xl font-bold leading-tight ${tone === "warn" ? "text-warn" : ""}`}
+      >
+        {value}
+      </div>
+      {hint && <div className="mt-1 text-xs text-ink-faint">{hint}</div>}
+      <a
+        href={enabled ? href : undefined}
+        aria-disabled={!enabled}
+        className={`mt-3 block text-center text-sm ${
+          enabled ? "btn-secondary" : "btn-secondary pointer-events-none opacity-50"
+        }`}
+      >
+        {action}
+      </a>
     </div>
   );
 }
