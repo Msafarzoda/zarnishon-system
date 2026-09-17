@@ -92,7 +92,7 @@ interface RawTicket {
   vk: number; batch: number; date: string; price: number;
   physicalKg: number; trashCoef: number; hisobiKg: number;
   moistCoef: number; holisKg: number; vehicle: string; driver: string;
-  tin: string; jamoat: string;
+  tin: string; jamoat: string; farmName: string;
 }
 interface RawPayment {
   rko: number; date: string; base: string; farmName: string; amountSomoni: number; desc: string;
@@ -221,21 +221,28 @@ async function main() {
   });
 
   // ------------------------------------------------------------ farms
+  //
+  // Most farms are known from a delivery in the intake sheet, which is where their TIN
+  // comes from. A few appear only in the payment sheet — an advance given before that
+  // farm has brought any cotton in at all — and have no TIN to key on, so they are looked
+  // up by name instead. Both maps are filled from this one insert loop.
   const farmIdByTin = new Map<string, string>();
+  const farmIdByName = new Map<string, string>();
   for (const f of data.farms) {
     const [row] = await db
       .insert(s.counterparties)
       .values({
         kind: "farm",
         name: f.name,
-        tin: f.tin === "0" ? null : f.tin,
+        tin: f.tin === "0" || !f.tin ? null : f.tin,
         defaultLocation: f.jamoat,
       })
       .returning();
     if (!row) throw new Error(`farm ${f.name}`);
-    farmIdByTin.set(f.tin, row.id);
+    if (f.tin && f.tin !== "0") farmIdByTin.set(f.tin, row.id);
+    farmIdByName.set(f.name, row.id);
   }
-  console.log(`Farms: ${farmIdByTin.size}`);
+  console.log(`Farms: ${farmIdByName.size}`);
 
   // ------------------------------------------------------------ drivers & vehicles
   const driverIdByName = new Map<string, string>();
@@ -315,8 +322,11 @@ async function main() {
   const ticketsByVk = new Map<number, { id: string; date: string }>();
   data.tickets.sort((a, b) => a.vk - b.vk);
   for (const t of data.tickets) {
-    const farmId = farmIdByTin.get(t.tin);
-    if (!farmId) throw new Error(`no farm for tin ${t.tin} (VK ${t.vk})`);
+    // A real farm's TIN is the reliable key (names get spelled differently across
+    // waybills); a farm with no valid TIN on record is looked up by name instead.
+    const farmId =
+      t.tin && t.tin !== "0" ? farmIdByTin.get(t.tin) : farmIdByName.get(t.farmName);
+    if (!farmId) throw new Error(`no farm for tin ${t.tin} / name "${t.farmName}" (VK ${t.vk})`);
     const batchId = batchByNumber.get(t.batch)!;
     const driverId = t.driver ? driverIdByName.get(t.driver) : undefined;
     const vehicleId = t.vehicle ? vehicleIdByPlate.get(t.vehicle) : undefined;
@@ -404,7 +414,6 @@ async function main() {
 
   // ------------------------------------------------------------ payments & advances
   data.payments.sort((a, b) => a.rko - b.rko);
-  const farmIdByName = new Map(data.farms.map((f) => [f.name, farmIdByTin.get(f.tin)!]));
 
   let paid = 0, paidByTicket = 0, advanced = 0;
   for (const p of data.payments) {
@@ -413,7 +422,12 @@ async function main() {
     const paidAt = new Date(`${p.date}T12:00:00Z`);
     const amountD = somoniToD(p.amountSomoni);
 
-    if (p.base === "харид") {
+    // Trust the description over the "base" column — at least one row in the real
+    // ledger says "харид" (purchase) in one column and "аванс чиниш" (picking advance)
+    // in the next, and the description is the one a person actually typed by hand for
+    // that specific row.
+    const isAdvance = p.base !== "харид" || /аванс/i.test(p.desc);
+    if (!isAdvance) {
       // Pay the exact truckload(s) the paper receipt names, not just "this farm's oldest
       // cotton" — the farmer was not always paid in delivery order, and settling the
       // wrong (often much bigger) ticket to reach the same cash figure would lock in a
