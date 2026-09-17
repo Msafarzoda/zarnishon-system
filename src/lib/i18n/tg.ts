@@ -600,6 +600,8 @@ export const tg = {
   dashboard: {
     title: "Ҳисоботи соҳиб",
     cottonReceived: "Пахтаи қабулшуда",
+    cottonReceivedToday: "Имрӯз қабул шуд",
+    onScaleToday: "Дар тарозу, тара интизор",
     cottonPayable: "Вазни пардохтшаванда",
     unpaidTickets: "Борхатҳои пардохтнашуда",
     unpaidFarmers: "Хоҷагиҳои интизори пардохт",

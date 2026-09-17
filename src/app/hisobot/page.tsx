@@ -75,6 +75,39 @@ export default async function DashboardPage() {
       ),
     );
 
+  /**
+   * Cotton received today — нетто, the same measure the season total uses, so the two
+   * numbers are directly comparable rather than one being a weight and the other an
+   * estimate. Keyed on `weighedAt` (тара taken, нетто known) rather than `createdAt`
+   * (truck arrived): a truck that arrived today but is still on the scale waiting for
+   * тара has not yet told us how much cotton it actually brought.
+   */
+  const [receivedToday] = await db
+    .select({
+      tickets: raw<string>`COUNT(*)`,
+      netG: raw<string>`COALESCE(SUM(${weighTickets.netG}), 0)`,
+    })
+    .from(weighTickets)
+    .where(
+      and(
+        gte(weighTickets.weighedAt, startOfDay),
+        isNotNull(weighTickets.netG),
+        raw`${weighTickets.status} <> 'VOID'`,
+      ),
+    );
+
+  // Trucks that arrived today and are still on the scale — брутто known, тара not yet
+  // taken. Not cotton "received" (нетто is not established), but a truck sitting here
+  // unweighed all day is exactly what "how much did we get today" quietly hides if this
+  // is left out, so it is shown next to the confirmed figure rather than folded into it.
+  const [onScaleToday] = await db
+    .select({
+      tickets: raw<string>`COUNT(*)`,
+      grossG: raw<string>`COALESCE(SUM(${weighTickets.grossG}), 0)`,
+    })
+    .from(weighTickets)
+    .where(and(eq(weighTickets.status, "OPEN"), gte(weighTickets.createdAt, startOfDay)));
+
   // ---- what is still owed to farmers, in cotton
   // The obligation is denominated in kilograms, not money: the price is only fixed when
   // the farmer decides to be paid. So we carry the weight and value it at today's price.
@@ -437,6 +470,17 @@ export default async function DashboardPage() {
             {tg.dashboard.cottonSection}
           </h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Tile
+              label={tg.dashboard.cottonReceivedToday}
+              value={kg(Number(receivedToday?.netG ?? 0))}
+              hint={`${receivedToday?.tickets ?? 0} × ${tg.ticket.title}`}
+            />
+            <Tile
+              label={tg.dashboard.onScaleToday}
+              value={kg(Number(onScaleToday?.grossG ?? 0))}
+              hint={`${onScaleToday?.tickets ?? 0} × ${tg.ticket.title}`}
+              tone={Number(onScaleToday?.tickets ?? 0) > 0 ? "warn" : undefined}
+            />
             <Tile
               label={tg.dashboard.cottonReceived}
               value={kg(Number(received?.netG ?? 0))}
