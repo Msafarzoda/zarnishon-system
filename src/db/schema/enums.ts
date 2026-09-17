@@ -61,7 +61,9 @@ export const accountKind = pgEnum("account_kind", [
   "ADVANCE_RECEIVABLE", // қарз owed to us by one farm
   "FARM_PAYABLE", // settled cotton money we still owe one farm
   "COTTON_PURCHASE", // expense
-  "SEED_REVENUE", // income from cottonseed sales
+  "SEED_REVENUE", // income from cottonseed sales — kept for books opened before §7
+  "PRODUCT_REVENUE", // income from чигит, улюк, пучоқ and кип alike
+  "BUYER_RECEIVABLE", // a buyer who has taken the goods and not yet paid, one per buyer
   "OPENING_BALANCE", // equity, used only to open the books
 ]);
 
@@ -71,6 +73,8 @@ export const ledgerTxKind = pgEnum("ledger_tx_kind", [
   "COTTON_PAYMENT",
   "CASH_DISBURSEMENT",
   "SEED_SALE_RECEIPT",
+  "PRODUCT_SALE_CREDIT", // goods left the yard, the money has not arrived
+  "SALE_PAYMENT_RECEIVED", // the buyer paid — cash into the same drawer that buys cotton
   "CASH_OPENING",
   "CASH_ADJUSTMENT",
   "REVERSAL",

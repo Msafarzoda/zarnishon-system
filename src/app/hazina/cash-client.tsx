@@ -87,9 +87,20 @@ export interface PaidRow {
   cashier: string | null;
 }
 
+/**
+ * What the desk is being asked to do right now.
+ *
+ * The screen used to be organised around the system's own distinctions — settlement
+ * versus disbursement, by-farm versus by-ticket — which are real and are why the ledger
+ * works, but they are not what the cashier is thinking about. He is thinking "Ҳакимов is
+ * at the window and wants two thousand". So the four things that actually happen at this
+ * window lead, in their own words, and the machinery arranges itself underneath.
+ */
+type Job = "pay" | "lend" | "receive" | "ticket";
+
 export function CashClient({
   cashOnHandD, totalOwedD, owedFarms, payouts, trend, advanceRateDPerKg, priceError,
-  tickets, farms, onScale, awaitingLab, history, readOnly,
+  tickets, farms, onScale, awaitingLab, history, readOnly, buyersOweD,
 }: {
   cashOnHandD: number;
   /** Diram a farm may borrow per kg of cotton in hand. docs/domain.md §4. */
@@ -107,20 +118,26 @@ export function CashClient({
   awaitingLab: number;
   history: PaidRow[];
   readOnly?: boolean;
+  /** §7: what buyers of чигит, улюк, пучоқ and кип still owe us. */
+  buyersOweD: number;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
-  const [showAdvance, setShowAdvance] = useState(false);
   const [payingFarm, setPayingFarm] = useState<OwedFarm | null>(null);
-  /**
-   * Which way round the desk is working. `farm` is the ordinary case — somebody at the
-   * window asking for an amount — so it leads; `ticket` stays for settling one particular
-   * борхат, which is what happens when a farm brings exactly one load and wants it gone.
-   */
-  const [mode, setMode] = useState<"farm" | "ticket">("farm");
   const [settlingFarmId, setSettlingFarmId] = useState<string | null>(null);
+  const [job, setJob] = useState<Job>("pay");
+  const [showHistory, setShowHistory] = useState(false);
+
+  /** Switching jobs clears whatever the last one had half-open. */
+  function chooseJob(next: Job) {
+    setJob(next);
+    setSelectedId(null);
+    setSettlingFarmId(null);
+    setPayingFarm(null);
+    setQuery("");
+  }
 
   const settlingFarm = farms.find((f) => f.id === settlingFarmId) ?? null;
 
@@ -179,174 +196,284 @@ export function CashClient({
         </div>
       )}
 
-      <div className="flex gap-2 flex-wrap">
-        <div className="flex rounded-lg border border-paper-line p-1">
-          <button
-            type="button"
-            onClick={() => { setMode("farm"); setSelectedId(null); }}
-            className={mode === "farm" ? "btn-primary" : "btn-ghost"}
-          >
-            {tg.cash.payByFarm}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode("ticket"); setSettlingFarmId(null); }}
-            className={mode === "ticket" ? "btn-primary" : "btn-ghost"}
-          >
-            {tg.cash.payByTicket}
-          </button>
+      {/* The four jobs. Each carries the number that says whether it has work waiting, so
+          the cashier can see there are three farms to pay without opening anything. */}
+      {!readOnly && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <JobCard
+            active={job === "pay"}
+            onClick={() => chooseJob("pay")}
+            title={tg.cash.jobPayFarm}
+            hint={tg.cash.jobPayFarmHint}
+            figure={owedFarms.length > 0 ? `${diramToSomoniString(totalOwedD)} ${tg.common.somoni}` : undefined}
+            count={owedFarms.length}
+          />
+          <JobCard
+            active={job === "lend"}
+            onClick={() => chooseJob("lend")}
+            title={tg.cash.jobLend}
+            hint={tg.cash.jobLendHint}
+            figure={`${diramToSomoniString(advanceRateDPerKg)} ${tg.common.somoni}/${tg.common.kg}`}
+          />
+          <JobCard
+            active={job === "receive"}
+            onClick={() => chooseJob("receive")}
+            title={tg.cash.jobTakeMoney}
+            hint={tg.cash.jobTakeMoneyHint}
+            figure={buyersOweD > 0 ? `${diramToSomoniString(buyersOweD)} ${tg.common.somoni}` : undefined}
+          />
+          <JobCard
+            active={job === "ticket"}
+            onClick={() => chooseJob("ticket")}
+            title={tg.cash.jobSettleTicket}
+            hint={tg.cash.jobSettleTicketHint}
+            count={tickets.length}
+          />
         </div>
-        <input
-          className="input flex-1 min-w-56"
-          placeholder={mode === "farm" ? tg.cash.chooseFarm : tg.cash.scanTicket}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoFocus
-        />
-        {!readOnly && (
-          <button type="button" className="btn-secondary"
-                  onClick={() => setShowAdvance((v) => !v)}>
-            {tg.advance.issue}
-          </button>
-        )}
-      </div>
+      )}
 
-      {/* Farms that settled and are still owed money. Only this list answers "who is
-          coming back for cash?", which before the split nobody could ask. */}
-      {owedFarms.length > 0 && (
-        <section className="card border-warn bg-amber-50/40 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-warn">
-            {tg.cash.owedFarms} — {diramToSomoniString(totalOwedD)} {tg.common.somoni}
-          </h2>
-          <ul className="space-y-2">
-            {owedFarms.map((f) => (
-              <li
-                key={f.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white px-3 py-2"
-              >
-                <span className="min-w-40 flex-1 font-medium">{f.name}</span>
-                {f.phone && <span className="tabular text-xs text-ink-faint">{f.phone}</span>}
-                <span className="tabular text-lg font-bold text-warn">
-                  {diramToSomoniString(f.owedD)} {tg.common.somoni}
-                </span>
-                {!readOnly && (
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={() => { setPayingFarm(f); setSelectedId(null); }}
+      {/* ---- Job: pay a farm. The ordinary case, and the one with somebody waiting. */}
+      {(job === "pay" || readOnly) && (
+        <>
+          {owedFarms.length > 0 && (
+            <section className="card border-warn bg-amber-50/40 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-warn">
+                {tg.cash.owedFarms} — {diramToSomoniString(totalOwedD)} {tg.common.somoni}
+              </h2>
+              <ul className="space-y-2">
+                {owedFarms.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white px-3 py-2"
                   >
-                    {tg.cash.payOut}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+                    <span className="min-w-40 flex-1 font-medium">{f.name}</span>
+                    {f.phone && <span className="tabular text-xs text-ink-faint">{f.phone}</span>}
+                    <span className="tabular text-lg font-bold text-warn">
+                      {diramToSomoniString(f.owedD)} {tg.common.somoni}
+                    </span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => { setPayingFarm(f); setSelectedId(null); }}
+                      >
+                        {tg.cash.payOut}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {payingFarm && !readOnly && (
+            <PayoutPanel
+              farm={payingFarm}
+              cashOnHandD={cashOnHandD}
+              onCancel={() => setPayingFarm(null)}
+              onNotice={setNotice}
+              onDone={() => { setPayingFarm(null); router.refresh(); }}
+            />
+          )}
+
+          {!payingFarm && (
+            settlingFarm && !readOnly ? (
+              <PayFarmPanel
+                farm={settlingFarm}
+                cashOnHandD={cashOnHandD}
+                onCancel={() => setSettlingFarmId(null)}
+                onNotice={setNotice}
+                onDone={() => { setSettlingFarmId(null); router.refresh(); }}
+              />
+            ) : (
+              <>
+                <input
+                  className="input w-full"
+                  placeholder={tg.cash.chooseFarm}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  autoFocus
+                />
+                <FarmChooser
+                  farms={farms}
+                  query={query}
+                  advanceRateDPerKg={advanceRateDPerKg}
+                  readOnly={readOnly}
+                  onPick={setSettlingFarmId}
+                />
+              </>
+            )
+          )}
+        </>
+      )}
+
+      {/* ---- Job: lend against cotton standing in our warehouse. */}
+      {job === "lend" && !readOnly && (
+        <AdvanceForm
+          farms={farms}
+          advanceRateDPerKg={advanceRateDPerKg}
+          onNotice={setNotice}
+          onDone={() => router.refresh()}
+        />
+      )}
+
+      {/* ---- Job: take money from a buyer of чигит, улюк, пучоқ or кип.
+          The panel itself lives on Фурӯш, beside the sales it is settling, rather than
+          being built twice. This card is here because the buyer walks up to *this*
+          window, so the desk has to be told the money is expected. */}
+      {job === "receive" && !readOnly && (
+        <section className="card p-5">
+          <h2 className="text-lg font-semibold">{tg.cash.jobTakeMoney}</h2>
+          <p className="mt-1 text-sm text-ink-soft">{tg.cash.jobTakeMoneyHint}</p>
+          <div className="mt-3 tabular text-3xl font-bold text-warn">
+            {diramToSomoniString(buyersOweD)} {tg.common.somoni}
+          </div>
+          <a className="btn-primary mt-4 inline-block" href="/furush">
+            {tg.sales.owedByBuyers} →
+          </a>
         </section>
       )}
 
-      {payingFarm && !readOnly && (
-        <PayoutPanel
-          farm={payingFarm}
-          cashOnHandD={cashOnHandD}
-          onCancel={() => setPayingFarm(null)}
-          onNotice={setNotice}
-          onDone={() => { setPayingFarm(null); router.refresh(); }}
-        />
-      )}
-
-      {history.length > 0 && <PaymentHistory history={history} />}
-      {payouts.length > 0 && <PayoutHistory payouts={payouts} />}
-
-      {showAdvance && (
-        <AdvanceForm farms={farms} advanceRateDPerKg={advanceRateDPerKg} onNotice={setNotice}
-                     onDone={() => { setShowAdvance(false); router.refresh(); }} />
-      )}
-
-      {mode === "farm" && settlingFarm && !readOnly ? (
-        <PayFarmPanel
-          farm={settlingFarm}
-          cashOnHandD={cashOnHandD}
-          onCancel={() => setSettlingFarmId(null)}
-          onNotice={setNotice}
-          onDone={() => { setSettlingFarmId(null); router.refresh(); }}
-        />
-      ) : mode === "farm" ? (
-        <FarmChooser
-          farms={farms}
-          query={query}
-          advanceRateDPerKg={advanceRateDPerKg}
-          readOnly={readOnly}
-          onPick={setSettlingFarmId}
-        />
-      ) : selected && selected.priceDPerKg !== null && !readOnly ? (
-        <PaymentPanel
-          ticket={selected}
-          priceDPerKg={selected.priceDPerKg}
-          cashOnHandD={cashOnHandD}
-          onCancel={() => setSelectedId(null)}
-          onNotice={setNotice}
-          onDone={() => { setSelectedId(null); router.refresh(); }}
-        />
-      ) : (
-        <ul className="space-y-2">
-          {filtered.length === 0 && (
-            <li className="card p-8 text-center">
-              <p className="text-ink-faint">{tg.common.nothingFound}</p>
-              {(awaitingLab > 0 || onScale > 0) && (
-                <p className="mt-2 text-sm text-warn">
-                  {awaitingLab > 0 && (
-                    <>
-                      {tg.cash.awaitingLabCount}: <strong>{awaitingLab}</strong>
-                    </>
+      {/* ---- Job: settle one particular борхат the farmer has brought in. */}
+      {job === "ticket" && !readOnly && (
+        selected && selected.priceDPerKg !== null ? (
+          <PaymentPanel
+            ticket={selected}
+            priceDPerKg={selected.priceDPerKg}
+            cashOnHandD={cashOnHandD}
+            onCancel={() => setSelectedId(null)}
+            onNotice={setNotice}
+            onDone={() => { setSelectedId(null); router.refresh(); }}
+          />
+        ) : (
+          <>
+            <input
+              className="input w-full"
+              placeholder={tg.cash.scanTicket}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+            />
+            <ul className="space-y-2">
+              {filtered.length === 0 && (
+                <li className="card p-8 text-center">
+                  <p className="text-ink-faint">{tg.common.nothingFound}</p>
+                  {(awaitingLab > 0 || onScale > 0) && (
+                    <p className="mt-2 text-sm text-warn">
+                      {awaitingLab > 0 && (
+                        <>
+                          {tg.cash.awaitingLabCount}: <strong>{awaitingLab}</strong>
+                        </>
+                      )}
+                      {awaitingLab > 0 && onScale > 0 && " · "}
+                      {onScale > 0 && (
+                        <>
+                          {tg.cash.onScaleCount}: <strong>{onScale}</strong>
+                        </>
+                      )}
+                    </p>
                   )}
-                  {awaitingLab > 0 && onScale > 0 && " · "}
-                  {onScale > 0 && (
-                    <>
-                      {tg.cash.onScaleCount}: <strong>{onScale}</strong>
-                    </>
-                  )}
-                </p>
+                </li>
               )}
-            </li>
-          )}
-          {filtered.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => !readOnly && setSelectedId(t.id)}
-                disabled={t.priceDPerKg === null || readOnly}
-                title={t.priceDPerKg === null ? tg.price.onlyOwner : undefined}
-                className="card flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-paper disabled:opacity-50"
-              >
-                <span className="font-mono text-brand">{t.serial}</span>
-                <span className="font-medium">{t.farm}</span>
-                {t.batchNumber !== null && (
-                  <span className="badge bg-paper text-ink-soft">
-                    {tg.ticket.batch} {t.batchNumber}
-                  </span>
-                )}
-                {t.advanceD > 0 && (
-                  <span className="badge bg-amber-100 text-warn">
-                    {tg.advance.outstanding} {diramToSomoniString(t.advanceD)}
-                  </span>
-                )}
-                <span className="ms-auto text-end">
-                  <span className="tabular block font-semibold">
-                    {gramsToKgString(t.netG, 1)} {tg.common.kg}
-                  </span>
-                  {/* What it is worth if he takes it today. The only question he asks. */}
-                  {t.priceDPerKg !== null && (
-                    <span className="tabular block text-xs text-ink-soft">
-                      ≈ {diramToSomoniString(valueToday(t))} {tg.common.somoni}
+              {filtered.map((t) => (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(t.id)}
+                    disabled={t.priceDPerKg === null}
+                    title={t.priceDPerKg === null ? tg.price.onlyOwner : undefined}
+                    className="card flex w-full items-center gap-3 px-4 py-3 text-start hover:bg-paper disabled:opacity-50"
+                  >
+                    <span className="font-mono text-brand">{t.serial}</span>
+                    <span className="font-medium">{t.farm}</span>
+                    {t.batchNumber !== null && (
+                      <span className="badge bg-paper text-ink-soft">
+                        {tg.ticket.batch} {t.batchNumber}
+                      </span>
+                    )}
+                    {t.advanceD > 0 && (
+                      <span className="badge bg-amber-100 text-warn">
+                        {tg.advance.outstanding} {diramToSomoniString(t.advanceD)}
+                      </span>
+                    )}
+                    <span className="ms-auto text-end">
+                      <span className="tabular block font-semibold">
+                        {gramsToKgString(t.netG, 1)} {tg.common.kg}
+                      </span>
+                      {/* What it is worth if he takes it today. The only question he asks. */}
+                      {t.priceDPerKg !== null && (
+                        <span className="tabular block text-xs text-ink-soft">
+                          ≈ {diramToSomoniString(valueToday(t))} {tg.common.somoni}
+                        </span>
+                      )}
                     </span>
-                  )}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+      )}
+
+      {/* The two histories are a day's worth of reading and were pushing the actual work
+          below the fold. They are kept — a cashier does get asked "who did we pay?" — but
+          behind one click, because that question is asked far less often than the four
+          above are answered. */}
+      {(history.length > 0 || payouts.length > 0) && (
+        <div>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setShowHistory((v) => !v)}
+          >
+            {showHistory ? tg.cash.hideHistory : tg.cash.showHistory}
+          </button>
+          {showHistory && (
+            <div className="mt-3 space-y-5">
+              {history.length > 0 && <PaymentHistory history={history} />}
+              {payouts.length > 0 && <PayoutHistory payouts={payouts} />}
+            </div>
+          )}
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One of the four jobs, as a target big enough to hit with a thumb on a tablet.
+ *
+ * The figure is the point: "Пул додан ба хоҷагӣ · 18 400.00 сомонӣ · 3" says there is
+ * work and how much of it, without opening anything. A card with nothing waiting shows
+ * no figure rather than a zero, so the eye goes to the ones that do.
+ */
+function JobCard({
+  active, onClick, title, hint, figure, count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  hint: string;
+  figure?: string;
+  count?: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`card px-4 py-3 text-start transition ${
+        active ? "border-brand bg-brand-light" : "hover:bg-paper"
+      }`}
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="font-semibold">{title}</span>
+        {count !== undefined && count > 0 && (
+          <span className="badge bg-warn/15 text-warn tabular">{count}</span>
+        )}
+      </div>
+      <div className="text-xs text-ink-faint">{hint}</div>
+      {figure && <div className="mt-2 tabular text-lg font-bold">{figure}</div>}
+    </button>
   );
 }
 

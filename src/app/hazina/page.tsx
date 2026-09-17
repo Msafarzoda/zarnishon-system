@@ -13,7 +13,11 @@ import {
   weighTickets,
 } from "@/db/schema/index";
 import { canOperate, requirePageRole } from "@/lib/auth/session";
-import { cashOnHandD, totalFarmPayableD } from "@/server/services/balances";
+import {
+  cashOnHandD,
+  totalBuyerReceivableD,
+  totalFarmPayableD,
+} from "@/server/services/balances";
 import { getActiveSettings } from "@/server/services/settings";
 import { collateralFor } from "@/domain/lending";
 import { resolvePriceAt } from "@/server/services/pricing";
@@ -286,6 +290,10 @@ export default async function CashDeskPage() {
         readOnly={readOnly}
         cashOnHandD={await cashOnHandD()}
         totalOwedD={await totalFarmPayableD()}
+        /* §7: money owed to us by buyers of чигит, улюк, пучоқ and кип. The drawer is
+           one drawer — what a local pays for a lorry of seed this morning is what pays
+           a farm this afternoon — so the desk has to see it coming. */
+        buyersOweD={await totalBuyerReceivableD()}
         owedFarms={owedRows
           .map((f) => ({
             id: f.id,

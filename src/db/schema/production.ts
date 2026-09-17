@@ -12,7 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { baleState, feedSource, productKind, weighSource } from "./enums";
 import { batches, storageLocations, varieties } from "./cotton";
-import { counterparties } from "./parties";
+import { counterparties, vehicles } from "./parties";
 import { stations, users } from "./org";
 
 /**
@@ -181,6 +181,15 @@ export const bales = pgTable(
     serialNumber: integer("serial_number").notNull(),
 
     runId: uuid("run_id").references(() => productionRuns.id),
+    /**
+     * Партия — and it is on the bale, not only reachable through the run.
+     *
+     * A run may be fed from more than one бунт, so the run cannot answer "which партия is
+     * this bale?" in general. The warehouse asks exactly that, of a bale it is holding,
+     * and it is what the serial and the label are built from: `K-2026-101-00042` is bale
+     * 42 of партия 101. Recorded at the press by the person who watched it come out.
+     */
+    batchId: uuid("batch_id").references(() => batches.id),
     weightG: integer("weight_g").notNull(),
     /** Сорт — what it will be priced on. */
     grade: text("grade"),
@@ -257,9 +266,41 @@ export const productSales = pgTable(
       .notNull()
       .references(() => counterparties.id),
 
-    /** Bulk only: the тара→брутто ticket the weight came from. */
+    /** Bulk only: the тара→брутто ticket the weight came from, where one was raised. */
     weighTicketId: uuid("weigh_ticket_id"),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id),
 
+    /**
+     * Bulk only, and the mirror image of intake: a lorry coming to *collect* arrives
+     * empty, so тара is weighed first and брутто after loading. Kept on the sale itself
+     * rather than as a Борхат, because there is no consignor, no lab and no партия — it
+     * is one lorry, one buyer, one number, and burying it in the intake table would mean
+     * every query about cotton bought had to learn to exclude it.
+     */
+    tareG: integer("tare_g"),
+    grossG: integer("gross_g"),
+
+    /**
+     * Where each of the two numbers came from, and the indicator frame behind it.
+     *
+     * Weaker than intake, and knowingly so. On intake the **server** captures the weight
+     * and the station never supplies one, because that number decides what a farm is paid
+     * and the station has an interest in it. Here the station sends what it read. The
+     * exposure runs the other way — understating an outbound weight costs the factory its
+     * own money, not a farm's — and two things stand behind it: the raw frame is kept
+     * verbatim, so a fabricated weight has to come with a fabricated Keli frame carrying a
+     * correct checksum, and the product no longer in stock has to reconcile against what
+     * the runs produced. If the same person ever both sells and reconciles, this is the
+     * first thing to tighten. docs/domain.md §7.
+     */
+    tareSource: weighSource("tare_source").notNull().default("manual"),
+    grossSource: weighSource("gross_source").notNull().default("manual"),
+    tareRaw: text("tare_raw"),
+    grossRaw: text("gross_raw"),
+    /** Required whenever either number was typed rather than read. */
+    weighReason: text("weigh_reason"),
+
+    /** Bulk: брутто − тара. Кип: the sum of the bales scanned onto the lorry. */
     weightG: integer("weight_g").notNull(),
     /** Frozen at the moment of sale, like every price in this system. */
     priceDPerKg: integer("price_d_per_kg").notNull(),
@@ -310,5 +351,78 @@ export const saleBales = pgTable(
     // One bale, one sale. The index is the guarantee, not the screen.
     uniqueIndex("sale_bales_bale_idx").on(t.baleId),
     index("sale_bales_sale_idx").on(t.saleId),
+  ],
+);
+
+
+/**
+ * Нархи маҳсулот — what one kilogram of чигит, улюк, пучоқ or кип sells for.
+ *
+ * Effective-dated and insert-only, exactly like `priceQuotes` in §4, and for the same
+ * reason: a sale made last Tuesday must keep last Tuesday's price for ever, however many
+ * times the owner has moved it since. **Only the owner sets these.** The молшинос records
+ * what left the yard; he does not decide what it was worth.
+ */
+export const productPrices = pgTable(
+  "product_prices",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    product: productKind("product").notNull(),
+    priceDPerKg: integer("price_d_per_kg").notNull(),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+    setBy: uuid("set_by")
+      .notNull()
+      .references(() => users.id),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("product_prices_effective_idx").on(t.product, t.effectiveFrom)],
+);
+
+/**
+ * Пули фурӯш қабул шуд — money a buyer handed over, against what they owe us.
+ *
+ * The mirror image of `disbursements` in §4, and kept separate from the sale for exactly
+ * the same reason: a sale happens once, at a price, against a lorry-load, while payment
+ * happens any number of times and against the buyer as a whole. A local who takes three
+ * lorries of чигит in a week and settles on Friday has three sales and one receipt.
+ *
+ * So "has this sale been paid?" is not a flag anybody sets — it is the buyer's
+ * BUYER_RECEIVABLE balance, summed from the ledger like every other balance here.
+ */
+export const saleReceipts = pgTable(
+  "sale_receipts",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    clientUuid: uuid("client_uuid").notNull(),
+    buyerId: uuid("buyer_id")
+      .notNull()
+      .references(() => counterparties.id),
+    /** Set when the buyer paid at the moment of sale; null for a later settlement. */
+    saleId: uuid("sale_id").references(() => productSales.id),
+
+    amountD: bigint("amount_d", { mode: "number" }).notNull(),
+    /** What the buyer still owes after this — printed on the receipt. */
+    balanceAfterD: bigint("balance_after_d", { mode: "number" }).notNull(),
+
+    receiptNo: text("receipt_no").notNull(),
+    ledgerTxId: uuid("ledger_tx_id").notNull(),
+
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    receivedBy: uuid("received_by")
+      .notNull()
+      .references(() => users.id),
+    stationId: uuid("station_id").references(() => stations.id),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversalReason: text("reversal_reason"),
+  },
+  (t) => [
+    uniqueIndex("sale_receipts_client_uuid_idx").on(t.clientUuid),
+    uniqueIndex("sale_receipts_receipt_idx").on(t.receiptNo),
+    index("sale_receipts_buyer_idx").on(t.buyerId),
+    index("sale_receipts_received_at_idx").on(t.receivedAt),
   ],
 );

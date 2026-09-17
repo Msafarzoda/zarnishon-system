@@ -15,23 +15,33 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
   ],
   lab: [{ href: "/laboratoriya", label: tg.nav.lab }],
   merchandiser: [
+    { href: "/istehsol", label: tg.nav.production },
+    { href: "/kipho", label: tg.nav.bales },
+    { href: "/furush", label: tg.nav.sales },
     { href: "/partiyaho", label: tg.nav.batches },
     { href: "/khojagiho", label: tg.nav.farms },
   ],
   cashier: [
     { href: "/hazina", label: tg.nav.cashdesk },
     { href: "/khojagiho", label: tg.nav.farms },
+    { href: "/furush", label: tg.nav.sales },
   ],
   accountant: [
     { href: "/hisobot", label: tg.nav.dashboard },
     { href: "/khojagiho", label: tg.nav.farms },
     { href: "/partiyaho", label: tg.nav.batches },
+    { href: "/istehsol", label: tg.nav.production },
+    { href: "/kipho", label: tg.nav.bales },
+    { href: "/furush", label: tg.nav.sales },
   ],
   owner: [
     { href: "/hisobot", label: tg.nav.dashboard },
     { href: "/narkhho", label: tg.nav.prices },
     { href: "/khojagiho", label: tg.nav.farms },
     { href: "/partiyaho", label: tg.nav.batches },
+    { href: "/istehsol", label: tg.nav.production },
+    { href: "/kipho", label: tg.nav.bales },
+    { href: "/furush", label: tg.nav.sales },
     { href: "/idora", label: tg.nav.users },
   ],
   admin: [

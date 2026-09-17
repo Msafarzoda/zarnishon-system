@@ -7,6 +7,8 @@ import { auditLog, factorySettings, priceQuotes } from "@/db/schema/index";
 import { requireRole } from "@/lib/auth/session";
 import { somoniStringToDiram, DomainError } from "@/domain/units";
 import { getActiveSettings } from "@/server/services/settings";
+import { setProductPrice } from "@/server/services/product-pricing";
+import { PRODUCT_KINDS, type ProductKind } from "@/domain/product";
 import { tg } from "@/lib/i18n/tg";
 
 /**
@@ -124,6 +126,47 @@ export async function setLendingRateAction(
 
   revalidatePath("/narkhho");
   revalidatePath("/hazina");
+  revalidatePath("/hisobot");
+  return { ok: tg.common.saved };
+}
+
+/**
+ * Нархи маҳсулот — what a kilogram of чигит, улюк, пучоқ or кип sells for.
+ *
+ * The owner's number, exactly like the cotton price, and stored the same way: a new row
+ * per change, never an edit, so an invoice written in October keeps October's price when
+ * the owner moves it in November. docs/domain.md §7.
+ */
+export async function setProductPriceAction(
+  _prev: { error?: string; ok?: string },
+  form: FormData,
+) {
+  const user = await requireRole("owner");
+
+  const product = String(form.get("product") ?? "");
+  if (!PRODUCT_KINDS.includes(product as ProductKind)) return { error: tg.common.error };
+
+  let priceDPerKg: number;
+  try {
+    priceDPerKg = somoniStringToDiram(String(form.get("price") ?? ""));
+  } catch (err) {
+    return { error: err instanceof DomainError ? err.message : tg.common.error };
+  }
+  if (priceDPerKg <= 0) return { error: tg.common.required };
+
+  try {
+    await setProductPrice({
+      product: product as ProductKind,
+      priceDPerKg,
+      setBy: user.id,
+      note: String(form.get("note") ?? "").trim() || undefined,
+    });
+  } catch (err) {
+    return { error: err instanceof DomainError ? err.message.split(" / ")[0] : tg.common.error };
+  }
+
+  revalidatePath("/narkhho");
+  revalidatePath("/furush");
   revalidatePath("/hisobot");
   return { ok: tg.common.saved };
 }

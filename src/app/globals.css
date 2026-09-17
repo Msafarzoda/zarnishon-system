@@ -106,6 +106,26 @@
     display: none !important;
   }
 
+  /*
+   * Тамғаи кип — bale labels, two across an A4 sheet and cut apart.
+   *
+   * 95 mm wide and 62 mm tall is the size that takes a Code 128 of a sixteen-character
+   * serial at two modules per bar without shrinking the bars below what a hand scanner
+   * reads reliably across a shed. `break-inside: avoid` keeps a label from being split
+   * across a page, which is the one failure that produces an unscannable barcode.
+   */
+  .bale-label {
+    width: 95mm !important;
+    height: 62mm !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 0.3mm dashed #666 !important;
+  }
+
+  .bale-label svg {
+    height: 15mm !important;
+  }
+
   /* The page wrapper's own padding would eat into the printable area. */
   .borkhat-page {
     padding: 0 !important;

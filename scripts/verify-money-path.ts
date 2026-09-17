@@ -24,6 +24,14 @@ import { captureWeight, createTicket } from "../src/server/services/tickets";
 import { cashOnHandD, farmPayableD, outstandingAdvanceD,
          totalFarmPayableD } from "../src/server/services/balances";
 import { runAllChecks } from "../src/server/services/integrity";
+import {
+  closeRun, openRun, pressBale, recordFeed, recordOutput, runMassBalance,
+} from "../src/server/services/production";
+import {
+  lookupBaleBySerial, productStock, receiveSalePayment, sellProduct,
+} from "../src/server/services/product-sales";
+import { setProductPrice } from "../src/server/services/product-pricing";
+import { totalBuyerReceivableD } from "../src/server/services/balances";
 import { DomainError, diramToSomoniString, gramsToKgString } from "../src/domain/units";
 
 const SEASON = 2026;
@@ -496,6 +504,194 @@ async function main() {
   }
   ok(`ledger balances, weights match their record, payments match the ledger — ` +
      `${findings.length} warning(s), 0 failures`);
+
+  // ---------------------------------------------------------------- §7: the factory
+  console.log("\nКоркард ва фурӯш — §7");
+
+  const run = await openRun({ clientUuid: randomUUID(), operatorId: owner.id });
+  ok(`басти ${run.serial} кушода шуд`);
+
+  await assert.rejects(
+    () => recordFeed({
+      clientUuid: randomUUID(), runId: run.id, weightG: 1_000_000,
+      operatorId: owner.id,
+    }),
+    (e: Error) => e instanceof DomainError,
+    "a hand-entered feed weight must demand a reason",
+  );
+  ok("вазни дастӣ бе сабаб қабул намешавад");
+
+  // 100 t in, and the outputs that a real shift would give: 57 % seed, 33 % lint,
+  // 1 % улюк, 8 % пучоқ. That leaves 1 % unaccounted for, inside the 3 % limit.
+  await recordFeed({
+    clientUuid: randomUUID(), runId: run.id, weightG: 100_000_000,
+    batchId: batch.id, reason: "конвейер", operatorId: owner.id,
+  });
+  for (const [product, g] of [
+    ["chigit", 57_000_000], ["ulyuk", 1_000_000], ["puchoq", 8_000_000],
+  ] as const) {
+    await recordOutput({
+      clientUuid: randomUUID(), runId: run.id, product, weightG: g,
+      reason: "тарозуи анбор", operatorId: owner.id,
+    });
+  }
+
+  await assert.rejects(
+    () => recordOutput({
+      clientUuid: randomUUID(), runId: run.id, product: "kip", weightG: 33_000_000,
+      reason: "x", operatorId: owner.id,
+    }),
+    (e: Error) => e instanceof DomainError,
+    "кип must never be recorded as a bulk output",
+  );
+  ok("кип ҳамчун маҳсулоти фалокӣ сабт намешавад");
+
+  // 155 bales at 213 kg is 33 015 kg — 33 % of the feed, inside the lint band.
+  const baleSerials: string[] = [];
+  for (let i = 0; i < 155; i++) {
+    const b = await pressBale({
+      clientUuid: randomUUID(), runId: run.id, batchId: batch.id,
+      weightG: 213_000, operatorId: owner.id,
+    });
+    baleSerials.push(b.serial);
+  }
+  assert.equal(baleSerials[0], `K-${SEASON}-101-00001`);
+  assert.equal(baleSerials[154], `K-${SEASON}-101-00155`);
+  ok("рақами кип партияро мебарад — K-2026-101-00001 … 00155");
+
+  const balance = await runMassBalance(run.id);
+  assert.equal(balance.severity, "ok",
+    `mass balance should be clean, got ${JSON.stringify(balance.findings)}`);
+  ok(`тавозун дуруст — талафот ${(balance.lossBp / 100).toFixed(2)} %`);
+
+  await closeRun(run.id, owner.id);
+  await assert.rejects(
+    () => pressBale({
+      clientUuid: randomUUID(), runId: run.id, batchId: batch.id,
+      weightG: 213_000, operatorId: owner.id,
+    }),
+    (e: Error) => e instanceof DomainError,
+    "a closed run must not take more bales",
+  );
+  ok("ба басти пӯшида чизе илова намешавад");
+
+  // ---- selling it
+  const [buyer] = await db
+    .insert(s.counterparties)
+    .values({
+      clientUuid: randomUUID(), kind: "local", name: "Ҳамсояи харидор",
+      createdBy: owner.id,
+    })
+    .returning();
+  assert(buyer, "could not create a buyer");
+
+  await assert.rejects(
+    () => sellProduct({
+      clientUuid: randomUUID(), product: "chigit", buyerId: buyer.id,
+      tareG: 8_000_000, grossG: 20_000_000, soldBy: owner.id,
+      weighReason: "тарозу",
+    }),
+    (e: Error) => e instanceof DomainError,
+    "selling before the owner has set a price must be refused",
+  );
+  ok("бе нархи соҳиб чизе фурӯхта намешавад");
+
+  await setProductPrice({ product: "chigit", priceDPerKg: 320, setBy: owner.id });
+  await setProductPrice({ product: "kip", priceDPerKg: 2_500, setBy: owner.id });
+  await assert.rejects(
+    () => setProductPrice({ product: "kip", priceDPerKg: 2_600, setBy: cashier.id }),
+    (e: Error) => e instanceof DomainError,
+    "a cashier must never set a selling price",
+  );
+  ok("нархро танҳо соҳиб мегузорад");
+
+  const cashBeforeSale = await cashOnHandD();
+
+  // 12 t of чигит at 3.20, paid in full at the gate — the ordinary local sale.
+  const seedSale = await sellProduct({
+    clientUuid: randomUUID(), product: "chigit", buyerId: buyer.id,
+    tareG: 8_000_000, grossG: 20_000_000,
+    tareSource: "indicator", grossSource: "indicator",
+    tareRaw: "\x02+0080000\x03", grossRaw: "\x02+0200000\x03",
+    paidNowD: 3_840_000, soldBy: owner.id,
+  });
+  assert.equal(seedSale.weightG, 12_000_000);
+  assert.equal(seedSale.amountD, 3_840_000);
+  ok(`чигит фурӯхта шуд — ${gramsToKgString(seedSale.weightG, 0)} кг, ` +
+     `${diramToSomoniString(seedSale.amountD)} сомонӣ`);
+
+  assert.equal(await cashOnHandD(), cashBeforeSale + 3_840_000);
+  ok("пули фурӯш ба ҳамон хазина даромад, ки ба хоҷагиҳо пул медиҳад");
+  assert.equal(await totalBuyerReceivableD(), 0);
+  ok("харидор чизе қарздор намонд");
+
+  // 100 bales on credit — кип goes at the end of the season and is rarely paid at once.
+  const [balesToSell] = [await db.select({ id: s.bales.id, serial: s.bales.serial })
+    .from(s.bales).limit(100)];
+  const kipSale = await sellProduct({
+    clientUuid: randomUUID(), product: "kip", buyerId: buyer.id,
+    baleIds: balesToSell.map((b) => b.id), soldBy: owner.id,
+  });
+  assert.equal(kipSale.weightG, 100 * 213_000);
+  assert.equal(kipSale.baleCount, 100);
+  ok(`${kipSale.baleCount} кип фурӯхта шуд — вазн аз сканер, на аз тарозу`);
+
+  const owedByBuyer = await totalBuyerReceivableD();
+  assert.equal(owedByBuyer, kipSale.amountD);
+  ok(`харидор ${diramToSomoniString(owedByBuyer)} сомонӣ қарздор шуд`);
+
+  // The one control that matters at the loading bay: a bale cannot leave twice.
+  await assert.rejects(
+    () => sellProduct({
+      clientUuid: randomUUID(), product: "kip", buyerId: buyer.id,
+      baleIds: [balesToSell[0]!.id], soldBy: owner.id,
+    }),
+    (e: Error) => e instanceof DomainError,
+    "a bale already on an invoice must not be sold again",
+  );
+  ok("як кип ду бор фурӯхта намешавад");
+
+  const scanned = await lookupBaleBySerial(balesToSell[0]!.serial);
+  assert(scanned?.refusal, "a sold bale must refuse at the scanner, with a reason");
+  ok(`сканер сабабро мегӯяд — «${scanned.refusal}»`);
+
+  const stockAfter = await productStock();
+  assert.equal(stockAfter.kip.count, 55);
+  ok(`дар анбор ${stockAfter.kip.count} кип монд`);
+  assert.equal(stockAfter.chigit.weightG, 57_000_000 - 12_000_000);
+  ok(`чигити дар анбор — ${gramsToKgString(stockAfter.chigit.weightG, 0)} кг`);
+
+  await assert.rejects(
+    () => receiveSalePayment({
+      clientUuid: randomUUID(), buyerId: buyer.id,
+      amountD: owedByBuyer + 100, receivedBy: cashier.id,
+    }),
+    (e: Error) => e instanceof DomainError,
+    "a receipt larger than the debt must be refused",
+  );
+  ok("аз қарз зиёдтар пул қабул намешавад");
+
+  const cashBeforeReceipt = await cashOnHandD();
+  const receipt = await receiveSalePayment({
+    clientUuid: randomUUID(), buyerId: buyer.id,
+    amountD: owedByBuyer, receivedBy: cashier.id,
+  });
+  assert.equal(receipt.balanceAfterD, 0);
+  assert.equal(await cashOnHandD(), cashBeforeReceipt + owedByBuyer);
+  ok(`расиди ${receipt.receiptNo} — қарзи харидор пӯшида шуд`);
+
+  const [soldBale] = await db
+    .select({ state: s.bales.state }).from(s.bales)
+    .where(eq(s.bales.id, balesToSell[0]!.id));
+  assert.equal(soldBale?.state, "SOLD");
+  ok("пас аз пардохт кипҳо «фурӯхта шуд» мешаванд");
+
+  const finalChecks = await runAllChecks(SEASON);
+  assert.equal(
+    finalChecks.length, 0,
+    `integrity checks failed after §7: ${JSON.stringify(finalChecks)}`,
+  );
+  ok("дафтар пас аз коркард ва фурӯш низ баробар аст");
 
   console.log(`\n${checks} checks passed against a live database.`);
   console.log(`Нақди дар хазина: ${diramToSomoniString(await cashOnHandD())} сомонӣ\n`);

@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { auditLog, counterparties, disbursements } from "@/db/schema/index";
+import { derivedUuid } from "./derived-uuid";
 import { DomainError } from "@/domain/units";
 import {
   planFarmSettlement,
@@ -294,25 +294,4 @@ async function planFor(
   });
 
   return { ...plan, unpriced };
-}
-
-/**
- * A derived, still-unique UUID for one of the several writes an operation makes.
- *
- * Settling a farm posts a payment per борхат and one disbursement under a single request,
- * and each row needs its own idempotency key. They are **derived** from the request's key
- * rather than generated, so a replay after a timeout finds every row already written — a
- * fresh key per attempt would settle the same tickets a second time.
- *
- * Hashed rather than built by editing hex digits in place: a farm can have any number of
- * борхатҳо waiting, and an index poked into one nibble quietly caps it at fifteen.
- */
-function derivedUuid(base: string, label: string): string {
-  const h = createHash("sha256").update(`${base}:${label}`).digest("hex");
-  // Stamped as a v8 UUID — "custom", which is exactly what this is.
-  const variant = ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
-  return (
-    `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-` +
-    `${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`
-  );
 }

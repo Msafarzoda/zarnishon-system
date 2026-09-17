@@ -11,8 +11,13 @@ import { canOperate, requirePageRole } from "@/lib/auth/session";
 import { diramToSomoniString } from "@/domain/units";
 import { getActiveSettings } from "@/server/services/settings";
 import { tg } from "@/lib/i18n/tg";
+import { tgProduct } from "@/lib/i18n/products";
 import { Shell } from "@/components/shell";
+import { currentProductPrices } from "@/server/services/product-pricing";
+import { productStock } from "@/server/services/product-sales";
+import { PRODUCT_KINDS, type ProductKind } from "@/domain/product";
 import { PriceForm } from "./price-form";
+import { ProductPriceForm, type ProductPriceRow } from "./product-price-form";
 import { LendingForm, type LendingExposure } from "./lending-form";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +99,16 @@ export default async function PricesPage() {
     .orderBy(desc(factorySettings.effectiveFrom))
     .limit(20);
 
+  // §7: the four selling prices, each beside the stock it applies to.
+  const [productPrices, stock] = await Promise.all([currentProductPrices(), productStock()]);
+  const productRows: ProductPriceRow[] = PRODUCT_KINDS.map((product: ProductKind) => ({
+    product,
+    priceDPerKg: productPrices[product]?.priceDPerKg ?? null,
+    effectiveFrom: productPrices[product]?.effectiveFrom.toISOString() ?? null,
+    stockG: stock[product].weightG,
+    stockCount: stock[product].count,
+  }));
+
   return (
     <Shell user={user} title={tg.price.title}>
       <div className="space-y-5">
@@ -114,10 +129,27 @@ export default async function PricesPage() {
               currentRateDPerKg={settings.advanceRateDPerKg}
               exposures={exposures}
             />
+            <ProductPriceForm rows={productRows} />
           </>
         ) : (
           <>
             <p className="card px-4 py-3 text-sm text-ink-soft">{tg.price.onlyOwner}</p>
+            {/* The accountant reads the selling prices but does not set them either. */}
+            <div className="card p-4">
+              <h2 className="mb-3 text-sm font-semibold text-ink-soft">{tg.sales.setPrices}</h2>
+              <ul className="flex flex-wrap gap-3">
+                {productRows.map((r) => (
+                  <li key={r.product} className="card px-3 py-2">
+                    <div className="text-xs text-ink-soft">{tgProduct[r.product]}</div>
+                    <div className="tabular text-lg font-bold">
+                      {r.priceDPerKg != null
+                        ? `${diramToSomoniString(r.priceDPerKg)} ${tg.common.somoni}`
+                        : tg.sales.noPriceYet}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
             {/* The accountant reads the rate but does not set it. */}
             <div className="card px-4 py-3">
               <div className="text-sm text-ink-soft">{tg.lending.title}</div>

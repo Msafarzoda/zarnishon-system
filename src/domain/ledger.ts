@@ -14,7 +14,9 @@ import type { Settlement } from "./settlement";
  *   ADVANCE_RECEIVABLE  — қарз a farm owes us, one per farm    (asset,  debit-normal)
  *   FARM_PAYABLE        — settled cotton money we owe a farm    (liability, credit-normal)
  *   COTTON_PURCHASE     — what we paid for cotton              (expense, debit-normal)
- *   SEED_REVENUE        — cottonseed sold to oil factories     (income, credit-normal)
+ *   SEED_REVENUE        — cottonseed sold, books opened before §7 (income, credit-normal)
+ *   PRODUCT_REVENUE     — чигит, улюк, пучоқ and кип alike     (income, credit-normal)
+ *   BUYER_RECEIVABLE    — a buyer who has taken goods unpaid    (asset,  debit-normal)
  *   OPENING_BALANCE     — used only to open the books          (equity, credit-normal)
  */
 
@@ -24,6 +26,8 @@ export type LedgerTxKind =
   | "COTTON_PAYMENT"
   | "CASH_DISBURSEMENT"
   | "SEED_SALE_RECEIPT"
+  | "PRODUCT_SALE_CREDIT"
+  | "SALE_PAYMENT_RECEIVED"
   | "CASH_OPENING"
   | "CASH_ADJUSTMENT"
   | "REVERSAL";
@@ -217,6 +221,74 @@ export function buildSeedSaleReceiptTx(
     entries: [
       { accountId: accounts.cashAccountId, amountD },
       { accountId: accounts.seedRevenueAccountId, amountD: -amountD },
+    ],
+  });
+}
+
+/**
+ * Маҳсулот фурӯхта шуд — the goods left the yard. docs/domain.md §7.
+ *
+ *   Dr BUYER_RECEIVABLE   amount
+ *     Cr PRODUCT_REVENUE          amount
+ *
+ * **Every sale posts this, including one paid in cash at the gate.** A cash sale is then
+ * a second transaction, `buildSaleReceiptTx`, posted a moment later — not a shortcut
+ * straight from cash to revenue.
+ *
+ * It looks like a needless extra row and it is not. A lorry of чигит is loaded, weighed
+ * and driven away; the money follows, sometimes the same hour and sometimes next week.
+ * With one combined entry there is no moment at which the buyer owes anything, so a
+ * driver who leaves without paying leaves no trace at all — the lorry is simply gone and
+ * the books show a sale that never happened. With two, the debt exists from the moment
+ * the goods do, and "who has taken our product and not paid" is a balance rather than
+ * something the молшинос remembers.
+ */
+export function buildProductSaleCreditTx(
+  amountD: number,
+  accounts: { buyerReceivableAccountId: string; productRevenueAccountId: string },
+  memo: string,
+): DraftTx {
+  assertNonNegativeInt(amountD, "amountD");
+  if (amountD === 0) {
+    throw new DomainError("Фурӯши сифр сабт намешавад. / A sale of zero is not recorded.");
+  }
+  return assertBalanced({
+    kind: "PRODUCT_SALE_CREDIT",
+    memo,
+    entries: [
+      { accountId: accounts.buyerReceivableAccountId, amountD },
+      { accountId: accounts.productRevenueAccountId, amountD: -amountD },
+    ],
+  });
+}
+
+/**
+ * Харидор пул дод — the buyer paid, in part or in full.
+ *
+ *   Dr CASH               amount
+ *     Cr BUYER_RECEIVABLE         amount
+ *
+ * Into the **same drawer that pays the farms**, deliberately. The season is a loop: cash
+ * buys cotton, cotton becomes чигит and пучоқ, the locals buy those for cash, and that
+ * cash buys the next farm's cotton. A separate revenue pot would hide the one fact the
+ * cashier needs at the window — that this morning's lorry of seed is what makes this
+ * afternoon's payment possible. docs/domain.md §7.
+ */
+export function buildSaleReceiptTx(
+  amountD: number,
+  accounts: { cashAccountId: string; buyerReceivableAccountId: string },
+  memo: string,
+): DraftTx {
+  assertNonNegativeInt(amountD, "amountD");
+  if (amountD === 0) {
+    throw new DomainError("Қабули сифр сабт намешавад. / A receipt of zero is not recorded.");
+  }
+  return assertBalanced({
+    kind: "SALE_PAYMENT_RECEIVED",
+    memo,
+    entries: [
+      { accountId: accounts.cashAccountId, amountD },
+      { accountId: accounts.buyerReceivableAccountId, amountD: -amountD },
     ],
   });
 }

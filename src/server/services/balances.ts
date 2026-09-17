@@ -164,7 +164,7 @@ export async function primaryCashAccountId(x: Executor = db): Promise<string> {
 }
 
 export async function accountIdByKind(
-  kind: "COTTON_PURCHASE" | "SEED_REVENUE" | "OPENING_BALANCE",
+  kind: "COTTON_PURCHASE" | "SEED_REVENUE" | "PRODUCT_REVENUE" | "OPENING_BALANCE",
   x: Executor = db,
 ) {
   const [row] = await x
@@ -174,4 +174,96 @@ export async function accountIdByKind(
     .limit(1);
   if (!row) throw new Error(`No ledger account of kind ${kind} exists.`);
   return row.id;
+}
+
+// ---------------------------------------------------------------- phase 2, §7
+
+/**
+ * Даромад аз фурӯши маҳсулот — the one income account for чигит, улюк, пучоқ and кип.
+ *
+ * Created on first use rather than by the seed. This account arrived a season after the
+ * books did, and a factory server that has been running since intake opened will never
+ * run the seed again — so a lazily-created account is the difference between the first
+ * sale working and the first sale being a foreign-key error at the loading bay.
+ */
+export async function productRevenueAccountId(x: Executor = db): Promise<string> {
+  const [existing] = await x
+    .select({ id: ledgerAccounts.id })
+    .from(ledgerAccounts)
+    .where(eq(ledgerAccounts.kind, "PRODUCT_REVENUE"))
+    .limit(1);
+  if (existing) return existing.id;
+
+  const [created] = await x
+    .insert(ledgerAccounts)
+    .values({
+      code: "REV-PROD",
+      nameTg: "Даромад аз фурӯши маҳсулот",
+      kind: "PRODUCT_REVENUE",
+    })
+    .returning({ id: ledgerAccounts.id });
+  if (!created) throw new Error("Could not create the product revenue account.");
+  return created.id;
+}
+
+/** Finds, or lazily creates, the receivable account for one buyer. */
+export async function buyerReceivableAccountIdFor(
+  counterpartyId: string,
+  counterpartyName: string,
+  x: Executor = db,
+): Promise<string> {
+  const [existing] = await x
+    .select({ id: ledgerAccounts.id })
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.kind, "BUYER_RECEIVABLE"),
+        eq(ledgerAccounts.counterpartyId, counterpartyId),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing.id;
+
+  const [created] = await x
+    .insert(ledgerAccounts)
+    .values({
+      code: `BUY-${counterpartyId.slice(0, 8)}`,
+      nameTg: `Қарзи ${counterpartyName} ба мо`,
+      kind: "BUYER_RECEIVABLE",
+      counterpartyId,
+    })
+    .returning({ id: ledgerAccounts.id });
+  if (!created) throw new Error("Could not create the receivable account for this buyer.");
+  return created.id;
+}
+
+/**
+ * Қарзи харидор — what one buyer has taken and not paid for.
+ * BUYER_RECEIVABLE is debit-normal, so a positive balance means the buyer owes us.
+ */
+export async function buyerReceivableD(
+  counterpartyId: string,
+  x: Executor = db,
+): Promise<number> {
+  const [row] = await x
+    .select({ total: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)` })
+    .from(ledgerEntries)
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(
+      and(
+        eq(ledgerAccounts.kind, "BUYER_RECEIVABLE"),
+        eq(ledgerAccounts.counterpartyId, counterpartyId),
+      ),
+    );
+  return Math.max(0, Number(row?.total ?? 0));
+}
+
+/** Everything every buyer owes us together. */
+export async function totalBuyerReceivableD(x: Executor = db): Promise<number> {
+  const [row] = await x
+    .select({ total: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)` })
+    .from(ledgerEntries)
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(eq(ledgerAccounts.kind, "BUYER_RECEIVABLE"));
+  return Math.max(0, Number(row?.total ?? 0));
 }
