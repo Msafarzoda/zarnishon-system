@@ -65,6 +65,7 @@ export const accountKind = pgEnum("account_kind", [
   "PRODUCT_REVENUE", // income from чигит, улюк, пучоқ and кип alike
   "BUYER_RECEIVABLE", // a buyer who has taken the goods and not yet paid, one per buyer
   "OPENING_BALANCE", // equity, used only to open the books
+  "OPERATING_EXPENSE", // маош ва харочоти корхона — wages and other non-cotton factory costs
 ]);
 
 export const ledgerTxKind = pgEnum("ledger_tx_kind", [
@@ -77,6 +78,7 @@ export const ledgerTxKind = pgEnum("ledger_tx_kind", [
   "SALE_PAYMENT_RECEIVED", // the buyer paid — cash into the same drawer that buys cotton
   "CASH_OPENING",
   "CASH_ADJUSTMENT",
+  "OPERATING_EXPENSE", // маош ва харочоти корхона — wages and other non-cotton factory costs
   "REVERSAL",
 ]);
 

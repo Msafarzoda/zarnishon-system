@@ -18,6 +18,7 @@ import type { Settlement } from "./settlement";
  *   PRODUCT_REVENUE     — чигит, улюк, пучоқ and кип alike     (income, credit-normal)
  *   BUYER_RECEIVABLE    — a buyer who has taken goods unpaid    (asset,  debit-normal)
  *   OPENING_BALANCE     — used only to open the books          (equity, credit-normal)
+ *   OPERATING_EXPENSE   — wages and other non-cotton costs     (expense, debit-normal)
  */
 
 export type LedgerTxKind =
@@ -30,6 +31,7 @@ export type LedgerTxKind =
   | "SALE_PAYMENT_RECEIVED"
   | "CASH_OPENING"
   | "CASH_ADJUSTMENT"
+  | "OPERATING_EXPENSE"
   | "REVERSAL";
 
 export interface DraftEntry {
@@ -123,6 +125,33 @@ export function buildCottonPaymentTx(
   }
 
   return assertBalanced({ kind: "COTTON_PAYMENT", memo, entries });
+}
+
+/**
+ * Маош ва харочоти корхона — wages and other cash costs that are not cotton itself:
+ * salaries, fuel, repairs. Kept apart from COTTON_PURCHASE because it answers a
+ * different question — "what did running the factory cost", not "what did the cotton
+ * cost" — and mixing the two would understate one and inflate the other every time
+ * either is reported on its own.
+ *
+ *   Dr OPERATING_EXPENSE   amount_d
+ *     Cr CASH                        amount_d
+ */
+export function buildOperatingExpenseTx(
+  amountD: number,
+  accounts: { cashAccountId: string; expenseAccountId: string },
+  memo: string,
+): DraftTx {
+  assertNonNegativeInt(amountD, "amountD");
+  if (amountD === 0) throw new DomainError("An expense of zero cannot be recorded.");
+  return assertBalanced({
+    kind: "OPERATING_EXPENSE",
+    memo,
+    entries: [
+      { accountId: accounts.expenseAccountId, amountD },
+      { accountId: accounts.cashAccountId, amountD: -amountD },
+    ],
+  });
 }
 
 /**

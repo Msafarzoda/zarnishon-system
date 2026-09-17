@@ -164,7 +164,7 @@ export async function primaryCashAccountId(x: Executor = db): Promise<string> {
 }
 
 export async function accountIdByKind(
-  kind: "COTTON_PURCHASE" | "SEED_REVENUE" | "PRODUCT_REVENUE" | "OPENING_BALANCE",
+  kind: "COTTON_PURCHASE" | "SEED_REVENUE" | "PRODUCT_REVENUE" | "OPENING_BALANCE" | "OPERATING_EXPENSE",
   x: Executor = db,
 ) {
   const [row] = await x
