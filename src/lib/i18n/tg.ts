@@ -307,6 +307,12 @@ export const tg = {
     connectScale: "Тарозуро пайваст кардан",
     notConnected: "Тарозу пайваст нашудааст",
     waitingForScale: "Интизори тарозу",
+    resolution: "Дақиқии индикатор",
+    resolutionWhole: "кг (бутун)",
+    resolutionTenths: "0.1 кг",
+    resolutionHundredths: "0.01 кг",
+    resolutionCheck:
+      "Рақами дар экрани тарозу буда бо рақами боло як хел аст? Агар 10 маротиба фарқ кунад, дақиқии индикатор нодуруст аст.",
     stable: "Устувор",
     unstable: "Ноустувор — интизор шавед",
     overCapacity: "Аз ҳад зиёд — вазн дуруст нест",

@@ -221,6 +221,12 @@ PORT=3000
 # HTTPS. See docs/deployment.md §2.
 # SCALE_PORT=/dev/ttyUSB0
 
+# Where the decimal point sits in what the indicator sends: 1 = tenths of a kilogram,
+# which is what the D2008 on this weighbridge does. The frame itself does not say, so
+# this cannot be detected — getting it wrong multiplies every weight in the factory by
+# ten. Check it by putting a known weight on the platform and comparing the two screens.
+# SCALE_DECIMALS=1
+
 # Off-site backup target, e.g. user@host:/srv/zarnishon-backups/
 # BACKUP_REMOTE=
 ENVEOF

@@ -102,3 +102,58 @@ export function bulkNetG(tareG: number, grossG: number): number {
   }
   return grossG - tareG;
 }
+
+
+// ---------------------------------------------------------------- bale weights
+
+/**
+ * What a кип can plausibly weigh, in grams.
+ *
+ * The bale scale is mechanical, so this is the one weight in the whole system that a
+ * person types with nothing reading over their shoulder. §2 otherwise forbids that
+ * entirely, and the compensating control is the run's mass balance — which works in
+ * aggregate, over a shift, and therefore catches a systematic shortfall but never the
+ * single fat-fingered entry that produced it.
+ *
+ * So the digits are checked here, where they are typed. This does not catch dishonesty —
+ * 203 for 213 is inside every band there is — and it is not meant to. It catches the
+ * typing: 21.3 for 213, 2130 for 213, the decimal point that went in one place too far.
+ * Those are the errors that put a bale into the books at a tenth or ten times its weight
+ * and make the shift's balance unreadable for the one that matters.
+ */
+export const BALE_WEIGHT = {
+  /** The owner's figure is 210–215 kg. Outside this band the operator must say why. */
+  usualMinG: 180_000,
+  usualMaxG: 240_000,
+  /** Outside this, it is not a bale. Refused whatever reason is offered. */
+  absoluteMinG: 50_000,
+  absoluteMaxG: 400_000,
+} as const;
+
+export type BaleWeightVerdict =
+  | { kind: "ok" }
+  /** Inside the absolute range but outside the usual one: allowed, with a reason. */
+  | { kind: "unusual"; messageTg: string }
+  | { kind: "refused"; messageTg: string };
+
+export function checkBaleWeight(weightG: number): BaleWeightVerdict {
+  assertNonNegativeInt(weightG, "weightG");
+
+  if (weightG < BALE_WEIGHT.absoluteMinG || weightG > BALE_WEIGHT.absoluteMaxG) {
+    return {
+      kind: "refused",
+      messageTg:
+        `Вазни кип бояд аз ${BALE_WEIGHT.absoluteMinG / GRAMS_PER_KG} то ` +
+        `${BALE_WEIGHT.absoluteMaxG / GRAMS_PER_KG} кг бошад — рақамро санҷед.`,
+    };
+  }
+  if (weightG < BALE_WEIGHT.usualMinG || weightG > BALE_WEIGHT.usualMaxG) {
+    return {
+      kind: "unusual",
+      messageTg:
+        `Кип одатан ${BALE_WEIGHT.usualMinG / GRAMS_PER_KG}–` +
+        `${BALE_WEIGHT.usualMaxG / GRAMS_PER_KG} кг мешавад. Сабабро нависед.`,
+    };
+  }
+  return { kind: "ok" };
+}

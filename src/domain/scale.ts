@@ -294,11 +294,20 @@ export function detectProtocol(frames: readonly string[]): DetectedProtocol | nu
   return { kind: "line", protocol: best!.protocol };
 }
 
-/** Read one frame with whichever protocol was detected. */
-export function readFrame(frame: string, detected: DetectedProtocol): ScaleReading | null {
+/**
+ * Read one frame with whichever protocol was detected.
+ *
+ * `decimals` applies to the Keli format alone — the others carry their own decimal place
+ * in the frame and cannot be got wrong this way.
+ */
+export function readFrame(
+  frame: string,
+  detected: DetectedProtocol,
+  { decimals = DEFAULT_KELI_DECIMALS }: { decimals?: number } = {},
+): ScaleReading | null {
   switch (detected.kind) {
     case "keli":
-      return parseKeliStxEtx(frame);
+      return parseKeliStxEtx(frame, { decimals });
     case "toledo":
       return parseToledoContinuous(frame);
     default:
@@ -382,9 +391,30 @@ export interface KeliReading extends ScaleReading {
 /** Length of the whole frame, STX and ETX included. */
 const KELI_FRAME_LEN = 12;
 
+/**
+ * Where the decimal point goes in the seven digits.
+ *
+ * **The frame does not say.** Unlike the Toledo format below, which carries the decimal
+ * place in its status bytes, this one is seven bare digits — so the resolution is a
+ * property of how the indicator was configured, and the only way to know it is to put a
+ * known weight on the platform and compare.
+ *
+ * This factory's D2008 sends tenths of a kilogram: 70.0 kg on the display arrives as
+ * `0000700`. Read as whole kilograms — which is what this parser did until a 70 kg test
+ * weight came up as 700 — every weight on the site was ten times too large. On the intake
+ * path that is a farm paid ten times over; the only reason it was not is that no truck had
+ * been weighed on it yet.
+ *
+ * So it is a setting, not an assumption: `SCALE_DECIMALS` on the server, shown on
+ * Санҷиши тарозу beside the raw frame, where a person compares it against the indicator's
+ * own display before the first truck. One is the default because it is what the indicator
+ * on this weighbridge actually does.
+ */
+export const DEFAULT_KELI_DECIMALS = 1;
+
 export function parseKeliStxEtx(
   frame: string,
-  { unit = "kg" as ScaleUnit } = {},
+  { unit = "kg" as ScaleUnit, decimals = DEFAULT_KELI_DECIMALS } = {},
 ): KeliReading | null {
   if (frame.length !== KELI_FRAME_LEN) return null;
   if (frame.charCodeAt(0) !== STX) return null;
@@ -408,7 +438,11 @@ export function parseKeliStxEtx(
   const magnitude = Number(digits);
   if (!Number.isFinite(magnitude)) return null;
 
-  const weightG = (sign === "-" ? -1 : 1) * magnitude * UNIT_TO_GRAMS[unit];
+  // Integer throughout: grams per unit first, then the decimal point put back by an
+  // integer division. `70.0 kg` is 700 tenths → 700 × 1000 / 10 = 70 000 g.
+  const perUnit = UNIT_TO_GRAMS[unit];
+  const scaled = divRound(magnitude * perUnit, 10 ** decimals);
+  const weightG = (sign === "-" ? -1 : 1) * scaled;
 
   return {
     weightG,
@@ -428,10 +462,19 @@ export function keliChecksum(signAndDigits: string): string {
   return xor.toString(16).toUpperCase().padStart(2, "0");
 }
 
-/** Builds a well-formed frame. Used by the simulator and by the tests. */
-export function encodeKeliFrame(kg: number): string {
+/**
+ * Builds a well-formed frame for a weight in kilograms. Used by the simulator, by the
+ * fake indicator and by the tests.
+ *
+ * Encodes at the **same resolution the parser reads**, and takes it as the same argument,
+ * so the two cannot drift apart. They had: the parser read whole kilograms while the real
+ * indicator sent tenths, and every test passed the whole time because the encoder shared
+ * the parser's mistake. A simulator that agrees with a wrong parser proves nothing.
+ */
+export function encodeKeliFrame(kg: number, decimals = DEFAULT_KELI_DECIMALS): string {
   const negative = kg < 0;
-  const digits = String(Math.abs(Math.round(kg))).padStart(7, "0").slice(-7);
+  const ticks = Math.abs(Math.round(kg * 10 ** decimals));
+  const digits = String(ticks).padStart(7, "0").slice(-7);
   const body = `${negative ? "-" : "+"}${digits}`;
   return `${String.fromCharCode(STX)}${body}${keliChecksum(body)}${String.fromCharCode(ETX)}`;
 }

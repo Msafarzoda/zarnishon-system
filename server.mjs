@@ -180,7 +180,12 @@ if (secure) {
  * wait while the scale "warmed up".
  */
 if (process.env.SCALE_PORT) {
-  console.log(`Тарозу / Scale: ${process.env.SCALE_PORT}`);
+  // The resolution is printed at boot because it is the one scale setting nothing can
+  // verify for itself, and a wrong one is a silent factor of ten on every weight.
+  console.log(
+    `Тарозу / Scale: ${process.env.SCALE_PORT} ` +
+      `(дақиқӣ / resolution: 10^-${process.env.SCALE_DECIMALS ?? 1} kg)`,
+  );
   setTimeout(() => {
     fetch(`http://127.0.0.1:${port}/api/scale/snapshot`)
       .then(() => console.log("Тарозу: порт кушода шуд / scale port opened"))

@@ -313,6 +313,50 @@ describe("showing raw bytes to a human", () => {
 });
 
 describe("Keli D2008 — STX…ETX frame", () => {
+  /*
+   * Literal bytes, copied from the indicator on this weighbridge — not built by
+   * `encodeKeliFrame`.
+   *
+   * Every other test here round-trips through the encoder, and for a while every one of
+   * them passed while the weighbridge read ten times heavy: the parser treated the seven
+   * digits as whole kilograms, the encoder wrote them the same way, and the two agreed
+   * with each other all the way to a 70 kg test weight showing as 700 kg on the station.
+   * A simulator that shares the parser's assumption cannot find the parser's mistake.
+   *
+   * So these frames are the contract with the hardware, written down as bytes. The
+   * checksum is the XOR of the sign and the seven digits: for "+0000700" that is
+   * 0x2B ^ 0x37 = 0x1C, the four zeros and the trailing pair cancelling themselves.
+   */
+  it("reads tenths of a kilogram, which is what this indicator sends", () => {
+    // 70.0 kg on the display.
+    const r = parseKeliStxEtx("\x02+00007001C\x03");
+    expect(r).not.toBeNull();
+    expect(r!.weightG).toBe(70_000);
+  });
+
+  it("reads the zero frame the indicator sends with an empty platform", () => {
+    // Captured from the real D2008 while commissioning it.
+    const r = parseKeliStxEtx("\x02+00000001B\x03");
+    expect(r?.weightG).toBe(0);
+  });
+
+  it("reads a loaded lorry at the resolution the indicator sends", () => {
+    // 20 480.5 kg → 204 805 tenths.
+    const body = "+0204805";
+    const r = parseKeliStxEtx(`\x02${body}${keliChecksum(body)}\x03`);
+    expect(r?.weightG).toBe(20_480_500);
+  });
+
+  /*
+   * The setting the resolution lives in. Getting it wrong is a factor-of-ten error on
+   * every weight in the factory, so it is stated rather than assumed — and a different
+   * indicator, configured for whole kilograms, is read correctly by saying so.
+   */
+  it("reads whole kilograms when the indicator is set that way", () => {
+    expect(parseKeliStxEtx("\x02+00007001C\x03", { decimals: 0 })?.weightG).toBe(700_000);
+    expect(parseKeliStxEtx("\x02+00007001C\x03", { decimals: 2 })?.weightG).toBe(7_000);
+  });
+
   it("reads the weight off a well-formed frame", () => {
     const frame = encodeKeliFrame(3015);
     expect(frame).toHaveLength(12);

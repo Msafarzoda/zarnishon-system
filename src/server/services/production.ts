@@ -9,7 +9,7 @@ import {
   runOutputs,
 } from "@/db/schema/index";
 import { DomainError } from "@/domain/units";
-import { baleSerial, type ProductKind } from "@/domain/product";
+import { baleSerial, checkBaleWeight, type ProductKind } from "@/domain/product";
 import { massBalance, type MassBalance, type RunTotals } from "@/domain/mass-balance";
 import { getActiveSettings } from "./settings";
 
@@ -269,6 +269,8 @@ export interface PressBaleInput {
   weightG: number;
   grade?: string | null;
   storageLocationId?: string | null;
+  /** Required when the weight falls outside the band a bale normally comes out at. */
+  reason?: string | null;
   operatorId: string;
   stationId?: string | null;
   pressedAt?: Date;
@@ -285,6 +287,20 @@ export interface PressBaleInput {
 export async function pressBale(input: PressBaleInput) {
   if (!Number.isSafeInteger(input.weightG) || input.weightG <= 0) {
     throw new DomainError("Вазни кип бояд аз сифр зиёд бошад. / A bale must weigh something.");
+  }
+
+  /*
+   * The digits, checked where they are typed. The mass balance catches a systematic
+   * shortfall over a shift but never the single misplaced decimal point that caused it —
+   * and one bale entered at 21.3 kg instead of 213 makes that shift's balance unreadable
+   * for the day it would have mattered.
+   */
+  const verdict = checkBaleWeight(input.weightG);
+  if (verdict.kind === "refused") {
+    throw new DomainError(`${verdict.messageTg} / Implausible bale weight.`);
+  }
+  if (verdict.kind === "unusual" && !input.reason?.trim()) {
+    throw new DomainError(`${verdict.messageTg} / Unusual bale weight needs a reason.`);
   }
 
   const [existing] = await db
@@ -337,6 +353,7 @@ export async function pressBale(input: PressBaleInput) {
         weightG: input.weightG,
         grade: input.grade?.trim() || null,
         storageLocationId: input.storageLocationId ?? null,
+        reason: input.reason?.trim() || null,
         pressedAt,
         operatorId: input.operatorId,
         stationId: input.stationId ?? null,
@@ -348,7 +365,10 @@ export async function pressBale(input: PressBaleInput) {
       action: "production.bale.press",
       entityTable: "bales",
       entityId: row.id,
-      payload: { serial, weightG: input.weightG, batch: batch.number, runId: input.runId },
+      payload: {
+        serial, weightG: input.weightG, batch: batch.number, runId: input.runId,
+        unusual: verdict.kind === "unusual", reason: input.reason?.trim() ?? null,
+      },
       actorId: input.operatorId,
       stationId: input.stationId ?? null,
       occurredAt: pressedAt,

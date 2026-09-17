@@ -1,5 +1,6 @@
 import { SerialPort } from "serialport";
 import {
+  DEFAULT_KELI_DECIMALS,
   describeBytes,
   detectProtocol,
   diagnoseScale,
@@ -58,6 +59,15 @@ export interface ScaleSnapshot {
   lastByteAt: number | null;
   /** True when bytes have stopped arriving — told apart from never having arrived. */
   stale: boolean;
+  /**
+   * Where the decimal point goes in the Keli frame's seven digits, from `SCALE_DECIMALS`.
+   *
+   * Reported so the commissioning screen can say it out loud. The frame does not carry
+   * it, so it cannot be checked by the machine at all — only by a person putting a known
+   * weight on the platform and comparing. Getting it wrong multiplies or divides every
+   * weight in the factory by ten, silently, and it did: a 70 kg test weight read as 700.
+   */
+  decimals: number;
   rawSample: string;
   frames: string[];
   error: string | null;
@@ -86,6 +96,7 @@ function blank(): ReaderState {
   return {
     connected: false,
     path: null,
+    decimals: configuredDecimals(),
     diagnosis: "not-connected",
     reading: null,
     settled: false,
@@ -114,6 +125,24 @@ function state(): ReaderState {
   return g[KEY];
 }
 
+/**
+ * `SCALE_DECIMALS`, or the resolution this factory's indicator actually uses.
+ *
+ * A separate setting rather than something detected, because the frame gives no evidence
+ * either way — see `DEFAULT_KELI_DECIMALS` in src/domain/scale.ts. Anything unreasonable
+ * falls back to the default rather than turning every weight on the site into nonsense.
+ */
+function configuredDecimals(): number {
+  const raw = process.env.SCALE_DECIMALS;
+  if (raw === undefined) return DEFAULT_KELI_DECIMALS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 3) {
+    console.warn(`[scale] SCALE_DECIMALS=${raw} is not 0–3; using ${DEFAULT_KELI_DECIMALS}.`);
+    return DEFAULT_KELI_DECIMALS;
+  }
+  return n;
+}
+
 /** What a frame does to the reader, wherever it came from. */
 function ingest(s: ReaderState, frame: string): void {
   if (!s.detected) {
@@ -123,7 +152,7 @@ function ingest(s: ReaderState, frame: string): void {
     s.detected = detected;
   }
 
-  const reading = readFrame(frame, s.detected);
+  const reading = readFrame(frame, s.detected, { decimals: s.decimals });
   if (!reading) return;
 
   s.readingsParsed += 1;
@@ -170,6 +199,7 @@ export function getScaleSnapshot(): ScaleSnapshot {
     readingsParsed: s.readingsParsed,
     lastByteAt: s.lastByteAt,
     stale,
+    decimals: s.decimals,
     rawSample: s.rawSample,
     frames: s.frames,
     error: s.error,

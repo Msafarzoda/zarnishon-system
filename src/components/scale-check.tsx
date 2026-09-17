@@ -42,7 +42,11 @@ const TEXT: Record<Tone, string> = {
   bad: "text-alarm",
 };
 
-export function ScaleCheck({ scale }: { scale: ScaleState & { diagnosis: ScaleDiagnosis } }) {
+export function ScaleCheck({
+  scale,
+}: {
+  scale: ScaleState & { diagnosis: ScaleDiagnosis; decimals?: number };
+}) {
   const advice = ADVICE[scale.diagnosis];
 
   return (
@@ -57,6 +61,22 @@ export function ScaleCheck({ scale }: { scale: ScaleState & { diagnosis: ScaleDi
         <Fact label={tg.scale.readingsParsed} value={scale.readingsParsed.toLocaleString("ru-RU")} />
         <Fact label={tg.scale.lastByte} value={<Since at={scale.lastByteAt} />} />
       </dl>
+
+      {/*
+        * The one thing on this screen no machine can check.
+        *
+        * The Keli frame is seven bare digits with no decimal point in it, so the system
+        * cannot tell 70.0 kg from 700 kg — it only knows what it was told. It was told
+        * wrong once, and read every weight on the site ten times heavy until somebody put
+        * a 70 kg weight on the platform. Stating it here, beside the number, is what makes
+        * that a five-second comparison instead of a season of overpayments.
+        */}
+      {scale.decimals !== undefined && (
+        <div className="mt-3 border-t border-current/10 pt-3">
+          <Fact label={tg.scale.resolution} value={resolutionLabel(scale.decimals)} />
+          <p className="mt-1 text-sm opacity-80">{tg.scale.resolutionCheck}</p>
+        </div>
+      )}
 
       {/* The bytes themselves. At the wrong baud rate the stream is not text at all, and a
           renderer that printed only printable characters would show a convincing blank. */}
@@ -78,6 +98,13 @@ export function ScaleCheck({ scale }: { scale: ScaleState & { diagnosis: ScaleDi
       )}
     </section>
   );
+}
+
+function resolutionLabel(decimals: number): string {
+  if (decimals === 0) return tg.scale.resolutionWhole;
+  if (decimals === 1) return tg.scale.resolutionTenths;
+  if (decimals === 2) return tg.scale.resolutionHundredths;
+  return `10^-${decimals} ${tg.common.kg}`;
 }
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {

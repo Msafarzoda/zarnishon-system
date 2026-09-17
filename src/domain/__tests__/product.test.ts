@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { baleSerial, bulkNetG, isBulk, parseBaleSerial, saleAmountD } from "../product";
+import {
+  baleSerial, bulkNetG, checkBaleWeight, isBulk, parseBaleSerial, saleAmountD,
+} from "../product";
 import { code128Svg, code128bValues } from "@/lib/barcode/code128";
 import { DomainError } from "../units";
 
@@ -96,5 +98,40 @@ describe("code 128", () => {
 
   it("refuses what set B cannot carry, rather than printing a wrong label", () => {
     expect(() => code128bValues("КИП")).toThrow();
+  });
+});
+
+/**
+ * The typed bale weight is the system's one unwatched number, and these checks are aimed
+ * squarely at the typing rather than at dishonesty: 203 for 213 passes everything here,
+ * and is what the run's mass balance is for.
+ */
+describe("what a кип can weigh", () => {
+  it("accepts the weights bales actually come out at", () => {
+    for (const kg of [180, 210, 213.5, 215, 240]) {
+      expect(checkBaleWeight(kg * 1000).kind).toBe("ok");
+    }
+  });
+
+  it("asks for a reason for a bale outside the usual band but still a bale", () => {
+    expect(checkBaleWeight(150_000).kind).toBe("unusual");
+    expect(checkBaleWeight(260_000).kind).toBe("unusual");
+  });
+
+  /*
+   * The decimal point in the wrong place. 21.3 and 2130 are the two ways 213 is mistyped,
+   * and either of them makes a shift's balance unreadable — so they are refused outright
+   * rather than allowed with a note.
+   */
+  it("refuses a misplaced decimal point whatever reason is offered", () => {
+    expect(checkBaleWeight(21_300).kind).toBe("refused");
+    expect(checkBaleWeight(2_130_000).kind).toBe("refused");
+    expect(checkBaleWeight(0).kind).toBe("refused");
+  });
+
+  it("does not pretend to catch a plausible understatement", () => {
+    // Ten kilograms light on every bale, all shift. Nothing here can see it; the run's
+    // mass balance is what does.
+    expect(checkBaleWeight(203_000).kind).toBe("ok");
   });
 });

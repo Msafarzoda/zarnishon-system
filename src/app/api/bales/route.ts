@@ -8,6 +8,8 @@ const schema = z.object({
   batchId: z.string().uuid(),
   weightG: z.number().int().positive(),
   grade: z.string().max(40).optional(),
+  /** Required when the weight is outside the band a bale normally comes out at. */
+  reason: z.string().max(500).optional(),
   storageLocationId: z.string().uuid().optional(),
 });
 
