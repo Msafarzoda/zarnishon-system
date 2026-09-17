@@ -171,8 +171,8 @@ async function main() {
 
   // ------------------------------------------------------------ wipe demo/test business data
   console.log("Clearing demo/test data …");
-  await sql`delete from payments`;
   await sql`delete from disbursements`;
+  await sql`delete from payments`;
   await sql`delete from advances`;
   await sql`delete from ledger_entries`;
   await sql`delete from ledger_tx`;
