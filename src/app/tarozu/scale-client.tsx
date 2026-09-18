@@ -44,7 +44,9 @@ interface Props {
   varieties: { id: string; code: string }[];
 }
 
-type Notice = { tone: "ok" | "warn" | "bad"; text: string } | null;
+type Notice =
+  | { tone: "ok" | "warn" | "bad"; text: string; link?: { href: string; label: string } }
+  | null;
 
 export function ScaleClient(props: Props) {
   const router = useRouter();
@@ -72,7 +74,7 @@ export function ScaleClient(props: Props) {
       {notice && (
         <div
           role="status"
-          className={`card px-4 py-3 ${
+          className={`card flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
             notice.tone === "ok"
               ? "border-brand bg-brand-light text-brand-dark"
               : notice.tone === "warn"
@@ -80,7 +82,12 @@ export function ScaleClient(props: Props) {
                 : "border-alarm bg-red-50 text-alarm"
           }`}
         >
-          {notice.text}
+          <span>{notice.text}</span>
+          {notice.link && (
+            <a href={notice.link.href} target="_blank" rel="noreferrer" className="btn-primary shrink-0">
+              {notice.link.label}
+            </a>
+          )}
         </div>
       )}
 
@@ -657,6 +664,7 @@ function TareCard({
       onNotice({
         tone: "ok",
         text: `${ticket.serial} — ${tg.ticket.net} ${gramsToKgString(preview.netG, 1)} ${tg.common.kg}`,
+        link: { href: `/borkhat/${ticket.id}`, label: tg.scale.printTicket },
       });
       scale.release();
       onDone();

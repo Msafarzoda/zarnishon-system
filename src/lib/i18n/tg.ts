@@ -168,6 +168,7 @@ export const tg = {
     production: "Коркард",
     bales: "Кипҳо",
     sales: "Фурӯш",
+    tickets: "Борхатҳо",
   },
 
   // ---- Борхат / weigh ticket, straight off Шакли махсус №1-пахта
@@ -697,6 +698,7 @@ export const tg = {
     error: "Хатогӣ",
     saved: "Нигоҳ дошта шуд",
     noResults: "Чизе ёфт нашуд",
+    status: "Ҳолат",
     tinRequired: "РМА-и хоҷагӣ ҳатмист — хоҷагӣ бо ҳамин рақам шинохта мешавад",
     tinInvalid: "РМА нодуруст аст — танҳо рақамҳо, 8–14 рақам",
     tinTaken: "Ин РМА аллакай сабт шудааст",

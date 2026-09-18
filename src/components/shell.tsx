@@ -12,6 +12,7 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
   weigher: [
     { href: "/tarozu", label: tg.nav.scale },
     { href: "/darvoza", label: tg.nav.gate },
+    { href: "/borkhatho", label: tg.nav.tickets },
   ],
   lab: [{ href: "/laboratoriya", label: tg.nav.lab }],
   merchandiser: [
@@ -20,15 +21,18 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
     { href: "/furush", label: tg.nav.sales },
     { href: "/partiyaho", label: tg.nav.batches },
     { href: "/khojagiho", label: tg.nav.farms },
+    { href: "/borkhatho", label: tg.nav.tickets },
   ],
   cashier: [
     { href: "/hazina", label: tg.nav.cashdesk },
     { href: "/khojagiho", label: tg.nav.farms },
+    { href: "/borkhatho", label: tg.nav.tickets },
     { href: "/furush", label: tg.nav.sales },
   ],
   accountant: [
     { href: "/hisobot", label: tg.nav.dashboard },
     { href: "/khojagiho", label: tg.nav.farms },
+    { href: "/borkhatho", label: tg.nav.tickets },
     { href: "/partiyaho", label: tg.nav.batches },
     { href: "/istehsol", label: tg.nav.production },
     { href: "/kipho", label: tg.nav.bales },
@@ -38,6 +42,7 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
     { href: "/hisobot", label: tg.nav.dashboard },
     { href: "/narkhho", label: tg.nav.prices },
     { href: "/khojagiho", label: tg.nav.farms },
+    { href: "/borkhatho", label: tg.nav.tickets },
     { href: "/partiyaho", label: tg.nav.batches },
     { href: "/istehsol", label: tg.nav.production },
     { href: "/kipho", label: tg.nav.bales },
@@ -47,6 +52,7 @@ const NAV: Record<Role, { href: string; label: string }[]> = {
   admin: [
     { href: "/idora", label: tg.nav.users },
     { href: "/hisobot", label: tg.nav.dashboard },
+    { href: "/borkhatho", label: tg.nav.tickets },
   ],
 };
 

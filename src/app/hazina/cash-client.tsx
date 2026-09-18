@@ -1296,7 +1296,7 @@ function ExpenseForm({
                 <div>
                   <div className="font-medium">{e.categoryName}</div>
                   <div className="text-xs text-ink-faint">
-                    {new Date(e.occurredAt).toLocaleDateString("tg-TJ")} · {e.recordedByName}
+                    {new Date(e.occurredAt).toLocaleDateString("ru-RU")} · {e.recordedByName}
                     {e.note && ` · ${e.note}`}
                   </div>
                 </div>
