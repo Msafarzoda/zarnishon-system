@@ -12,6 +12,7 @@ import { settleTicket } from "@/domain/settlement";
 import { normaliseTin } from "@/domain/plate";
 import { submit } from "@/lib/offline/station-client";
 import { PriceTrendStat } from "@/components/price-trend";
+import { SearchableSelect } from "@/components/searchable-select";
 import { PayFarmPanel } from "./pay-farm-panel";
 import type { PriceTrend } from "@/server/services/price-trend";
 import { tg } from "@/lib/i18n/tg";
@@ -50,6 +51,20 @@ export interface FarmRow {
   maxAdvanceD: number;
   headroomD: number;
   overLent: boolean;
+}
+
+export interface ExpenseCategoryRow {
+  id: string;
+  nameTg: string;
+}
+
+export interface ExpenseRow {
+  id: string;
+  categoryName: string;
+  amountD: number;
+  note: string | null;
+  occurredAt: string;
+  recordedByName: string;
 }
 
 export interface OwedFarm {
@@ -96,11 +111,12 @@ export interface PaidRow {
  * at the window and wants two thousand". So the four things that actually happen at this
  * window lead, in their own words, and the machinery arranges itself underneath.
  */
-type Job = "pay" | "lend" | "receive" | "ticket";
+type Job = "pay" | "lend" | "receive" | "ticket" | "spend";
 
 export function CashClient({
   cashOnHandD, totalOwedD, owedFarms, payouts, trend, advanceRateDPerKg, priceError,
   tickets, farms, onScale, awaitingLab, history, readOnly, buyersOweD,
+  expenseCategories, recentExpenses,
 }: {
   cashOnHandD: number;
   /** Diram a farm may borrow per kg of cotton in hand. docs/domain.md §4. */
@@ -120,6 +136,9 @@ export function CashClient({
   readOnly?: boolean;
   /** §7: what buyers of чигит, улюк, пучоқ and кип still owe us. */
   buyersOweD: number;
+  /** §4 маош/ошхона/таъмир — cash out that is not cotton. */
+  expenseCategories: ExpenseCategoryRow[];
+  recentExpenses: ExpenseRow[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -228,6 +247,12 @@ export function CashClient({
             title={tg.cash.jobSettleTicket}
             hint={tg.cash.jobSettleTicketHint}
             count={tickets.length}
+          />
+          <JobCard
+            active={job === "spend"}
+            onClick={() => chooseJob("spend")}
+            title={tg.cash.jobSpend}
+            hint={tg.cash.jobSpendHint}
           />
         </div>
       )}
@@ -413,6 +438,16 @@ export function CashClient({
             </ul>
           </>
         )
+      )}
+
+      {/* ---- Job: spend cash on something that is not cotton — payroll, kitchen, repairs. */}
+      {job === "spend" && !readOnly && (
+        <ExpenseForm
+          categories={expenseCategories}
+          recentExpenses={recentExpenses}
+          onNotice={setNotice}
+          onDone={() => router.refresh()}
+        />
       )}
 
       {/* The two histories are a day's worth of reading and were pushing the actual work
@@ -999,11 +1034,16 @@ function AdvanceForm({
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <label className="label" htmlFor="adv-farm">{tg.ticket.consignor}</label>
-          <select id="adv-farm" required className="input" value={counterpartyId}
-                  onChange={(e) => setCounterpartyId(e.target.value)}>
-            <option value="">—</option>
-            {farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
+          <SearchableSelect
+            id="adv-farm"
+            required
+            value={counterpartyId}
+            onChange={setCounterpartyId}
+            options={farms.map((f) => ({
+              value: f.id,
+              label: f.tin ? `${f.name} · ${f.tin}` : f.name,
+            }))}
+          />
         </div>
         <div>
           <label className="label" htmlFor="adv-amount">{tg.advance.principal}</label>
@@ -1086,6 +1126,189 @@ function AdvanceForm({
         )}
       </div>
     </form>
+  );
+}
+
+// -------------------------------------------------------------------- expense
+
+/**
+ * Харочот — cash out for something that is not cotton: payroll, kitchen supplies, a
+ * repair. Kept apart from paying a хоҷагӣ or lending against its cotton so "how much
+ * cotton cost us" and "what it costs to run the factory" are never the same number by
+ * accident. docs/domain.md §4.
+ */
+function ExpenseForm({
+  categories, recentExpenses, onNotice, onDone,
+}: {
+  categories: ExpenseCategoryRow[];
+  recentExpenses: ExpenseRow[];
+  onNotice: (n: { tone: "ok" | "bad"; text: string }) => void;
+  onDone: () => void;
+}) {
+  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryList, setCategoryList] = useState(categories);
+
+  async function onAddCategory() {
+    const nameTg = newCategoryName.trim();
+    if (!nameTg) return;
+    setBusy(true);
+    try {
+      // Unlike a farm or a truck, a category has no client-assigned id to work with
+      // offline — it needs the server's answer to be usable at all, so this one waits
+      // for a real connection rather than queuing.
+      const res = await submit<{ id: string; nameTg: string }>("/api/expense-categories", { nameTg });
+      if (res.kind !== "applied") {
+        onNotice({
+          tone: "bad",
+          text: res.kind === "rejected" ? res.message : `${tg.app.offline} — ${tg.expense.addCategory}`,
+        });
+        return;
+      }
+      const created = res.result;
+      setCategoryList((list) =>
+        list.some((c) => c.nameTg === created.nameTg) ? list : [...list, created],
+      );
+      setCategoryId(created.id);
+      setNewCategoryName("");
+      setAddingCategory(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await submit<{ expenseId: string }>("/api/expenses", {
+        categoryId,
+        amountD: somoniStringToDiram(amount),
+        note: note.trim() || undefined,
+      });
+      if (res.kind !== "applied") {
+        onNotice({
+          tone: "bad",
+          text: res.kind === "rejected" ? res.message : `${tg.app.offline} — ${tg.expense.record}`,
+        });
+        return;
+      }
+      const category = categoryList.find((c) => c.id === categoryId);
+      onNotice({
+        tone: "ok",
+        text: `${category?.nameTg ?? tg.expense.title}: ${amount} ${tg.common.somoni}`,
+      });
+      setAmount("");
+      setNote("");
+      onDone();
+    } catch {
+      onNotice({ tone: "bad", text: tg.common.error });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  let amountError: string | null = null;
+  if (amount.trim()) {
+    try {
+      somoniStringToDiram(amount);
+    } catch {
+      amountError = tg.cash.amountNotValid;
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <form onSubmit={onSubmit} className="card p-5 space-y-4">
+        <h2 className="font-semibold">{tg.expense.record}</h2>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <div className="flex items-end justify-between gap-2">
+              <label className="label mb-0" htmlFor="exp-category">{tg.expense.category}</label>
+              <button
+                type="button"
+                onClick={() => { setAddingCategory((v) => !v); setNewCategoryName(""); }}
+                className="mb-1 rounded px-2 py-0.5 text-sm font-medium text-brand hover:bg-brand-light"
+              >
+                {addingCategory ? tg.common.cancel : tg.expense.addCategory}
+              </button>
+            </div>
+            {categoryList.length > 0 ? (
+              <select id="exp-category" required className="input mt-1" value={categoryId}
+                      onChange={(e) => setCategoryId(e.target.value)}>
+                <option value="">—</option>
+                {categoryList.map((c) => <option key={c.id} value={c.id}>{c.nameTg}</option>)}
+              </select>
+            ) : (
+              <p className="mt-1 text-sm text-ink-faint">{tg.expense.noCategoryYet}</p>
+            )}
+            {addingCategory && (
+              <div className="mt-2 flex gap-2 rounded-lg border border-brand/30 bg-brand-light/50 p-3">
+                <input
+                  className="input"
+                  placeholder={tg.expense.newCategoryPlaceholder}
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                />
+                <button type="button" onClick={onAddCategory} disabled={busy || !newCategoryName.trim()}
+                        className="btn-primary shrink-0">
+                  {tg.common.save}
+                </button>
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="label" htmlFor="exp-amount">{tg.expense.amount}</label>
+            <input id="exp-amount" inputMode="decimal" required className="input-number"
+                   placeholder="500" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="label" htmlFor="exp-note">{tg.expense.note}</label>
+            <input id="exp-note" className="input" value={note}
+                   onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+
+        {amountError && <p role="alert" className="text-sm font-medium text-alarm">{amountError}</p>}
+
+        <button
+          type="submit"
+          disabled={busy || !categoryId || !amount || amountError !== null}
+          className="btn-primary"
+        >
+          {busy ? tg.common.loading : tg.expense.record}
+        </button>
+      </form>
+
+      <div className="card p-5">
+        <h2 className="font-semibold">{tg.expense.recent}</h2>
+        {recentExpenses.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-faint">{tg.expense.noneYet}</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-paper-line">
+            {recentExpenses.map((e) => (
+              <li key={e.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <div>
+                  <div className="font-medium">{e.categoryName}</div>
+                  <div className="text-xs text-ink-faint">
+                    {new Date(e.occurredAt).toLocaleDateString("tg-TJ")} · {e.recordedByName}
+                    {e.note && ` · ${e.note}`}
+                  </div>
+                </div>
+                <span className="tabular shrink-0 font-semibold">
+                  {diramToSomoniString(e.amountD)} {tg.common.somoni}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -11,6 +11,7 @@ import { newClientUuid } from "@/lib/offline/outbox";
 import { useWeighbridge } from "@/lib/scale/use-weighbridge";
 import { ScalePanel } from "@/components/scale-panel";
 import { ManualWeight } from "@/components/manual-weight";
+import { SearchableSelect } from "@/components/searchable-select";
 import { tg } from "@/lib/i18n/tg";
 
 interface AwaitingTare {
@@ -519,11 +520,7 @@ function SelectWithAdd({
         </button>
       </div>
 
-      <select id={id} required={required} className="input mt-1" value={value}
-              onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+      <SearchableSelect id={id} value={value} onChange={onChange} options={options} />
 
       {adding && (
         <div className="mt-2 space-y-2 rounded-lg border border-brand/30 bg-brand-light/50 p-3">

@@ -264,3 +264,61 @@ export const disbursements = pgTable(
     index("disbursements_paid_at_idx").on(t.paidAt),
   ],
 );
+
+// ------------------------------------------------------------------ operating expenses
+
+/**
+ * Харочот — a category of factory cost that is not cotton itself: маош (payroll),
+ * маҳсулот барои ошхона (kitchen supplies), таъмири корхона (maintenance), and whatever
+ * else the owner names. A real table rather than a fixed list, so a new category is one
+ * row, not a code change and a redeploy.
+ */
+export const expenseCategories = pgTable(
+  "expense_categories",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    nameTg: text("name_tg").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (t) => [uniqueIndex("expense_categories_name_idx").on(t.nameTg)],
+);
+
+/**
+ * One factory expense: cash out for something that is not cotton. Every row posts the
+ * same ledger shape (Dr OPERATING_EXPENSE / Cr CASH, see `buildOperatingExpenseTx`) —
+ * the category lives here, not as a separate ledger account per category, so "how much
+ * on payroll this season" is one query against this table and the trial balance stays
+ * one line.
+ */
+export const expenses = pgTable(
+  "expenses",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    clientUuid: uuid("client_uuid").notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => expenseCategories.id),
+    amountD: bigint("amount_d", { mode: "number" }).notNull(),
+    note: text("note"),
+    ledgerTxId: uuid("ledger_tx_id")
+      .notNull()
+      .references(() => ledgerTx.id),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    recordedBy: uuid("recorded_by")
+      .notNull()
+      .references(() => users.id),
+    stationId: uuid("station_id").references(() => stations.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id),
+    reversalReason: text("reversal_reason"),
+  },
+  (t) => [
+    uniqueIndex("expenses_client_uuid_idx").on(t.clientUuid),
+    index("expenses_category_idx").on(t.categoryId),
+    index("expenses_occurred_idx").on(t.occurredAt),
+  ],
+);

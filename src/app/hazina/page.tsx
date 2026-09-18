@@ -22,6 +22,7 @@ import { getActiveSettings } from "@/server/services/settings";
 import { collateralFor } from "@/domain/lending";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { priceTrend } from "@/server/services/price-trend";
+import { listExpenseCategories, recentExpenses } from "@/server/services/expenses";
 import { tg } from "@/lib/i18n/tg";
 import { Shell } from "@/components/shell";
 import { ReadOnlyBanner } from "@/components/read-only-banner";
@@ -325,6 +326,11 @@ export default async function CashDeskPage() {
           priceDPerKg: priceByVariety.get(t.varietyId) ?? null,
         }))}
         farms={farmList}
+        expenseCategories={await listExpenseCategories()}
+        recentExpenses={(await recentExpenses()).map((e) => ({
+          ...e,
+          occurredAt: e.occurredAt.toISOString(),
+        }))}
       />
     </Shell>
   );

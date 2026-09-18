@@ -21,6 +21,7 @@ import { cashOnHandD, totalFarmPayableD } from "@/server/services/balances";
 import { resolvePriceAt } from "@/server/services/pricing";
 import { getActiveSettings } from "@/server/services/settings";
 import { runAllChecks } from "@/server/services/integrity";
+import { expenseTotalsByCategory } from "@/server/services/expenses";
 import { listReprints } from "@/server/services/printing";
 import { productStock } from "@/server/services/product-sales";
 import { currentProductPrices } from "@/server/services/product-pricing";
@@ -52,6 +53,19 @@ export default async function DashboardPage() {
   /** Recent-history window for the panels the owner reviews. */
   const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const since = since14;
+  const seasonStart = new Date(`${season}-01-01T00:00:00Z`);
+
+  // Хароҷоти корхона аз рӯи категория — маош, ошхона, таъмир, ҳар чи ки бошад — ба ҷои
+  // як рақами яклухт, то соҳиб бидонад пул ба куҷо рафт, на танҳо ки рафт.
+  const expenseTotals = await expenseTotalsByCategory(seasonStart);
+  const totalExpensesD = expenseTotals.reduce((sum, e) => sum + e.totalD, 0);
+
+  const [cottonPurchaseRow] = await db
+    .select({ totalD: raw<string>`COALESCE(SUM(${ledgerEntries.amountD}), 0)` })
+    .from(ledgerEntries)
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(eq(ledgerAccounts.kind, "COTTON_PURCHASE"));
+  const cottonPurchaseD = Number(cottonPurchaseRow?.totalD ?? 0);
 
   let priceDPerKg: number | null = null;
   try {
@@ -499,6 +513,34 @@ export default async function DashboardPage() {
               tone={Number(awaitingLab?.tickets ?? 0) > 0 ? "warn" : undefined}
             />
           </div>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            {tg.dashboard.expenseSection}
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Tile label={tg.dashboard.cottonPurchaseTotal} value={som(cottonPurchaseD)} />
+            <Tile
+              label={tg.dashboard.totalExpenses}
+              value={som(totalExpensesD)}
+              hint={
+                expenseTotals.length > 0
+                  ? `${expenseTotals.length} × ${tg.dashboard.byCategory}`
+                  : tg.expense.noneYet
+              }
+            />
+          </div>
+          {expenseTotals.length > 0 && (
+            <div className="card divide-y divide-paper-line p-0">
+              {expenseTotals.map((e) => (
+                <div key={e.categoryName} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span>{e.categoryName}</span>
+                  <span className="tabular font-semibold">{som(e.totalD)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="card p-4">
